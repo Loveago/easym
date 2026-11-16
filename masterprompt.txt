@@ -1,0 +1,1837 @@
+# amaMomoApp — COMPLETE MASTER BUILD PROMPT
+## Production Android Mobile Money Agent Application
+
+**Project name:** amaMomoApp  
+**Platform:** Android  
+**Country:** Ghana  
+**Primary users:** Mobile money agents  
+**Development environment:** Antigravity  
+**Application type:** Native Android application  
+**Primary transaction networks:** MTN MoMo, AirtelTigo / AT Money, Telecel Cash
+
+---
+
+# SECTION 1 — YOUR RESPONSIBILITY
+
+You are responsible for designing, architecting and developing amaMomoApp as a complete, functional Android application.
+
+Act as a:
+
+- Senior Android developer.
+- Kotlin engineer.
+- Fintech application architect.
+- Backend engineer.
+- PostgreSQL database architect.
+- USSD automation specialist.
+- Paystack integration specialist.
+- Professional UI/UX designer.
+- Application security engineer.
+- Quality assurance engineer.
+
+You must implement the actual application, not just produce a design concept.
+
+The finished application must include:
+
+1. Complete Android application.
+2. Complete UI and navigation.
+3. Authentication.
+4. Automatic seven-day free trial.
+5. Paystack subscription system.
+6. MTN MoMo integration.
+7. AirtelTigo / AT Money integration.
+8. Telecel Cash integration.
+9. USSD automation engine.
+10. Customer-led cash-out workflows.
+11. Airtime purchases.
+12. Data purchases.
+13. Transaction verification.
+14. Transaction history.
+15. Reports and analytics.
+16. Offline-first local database.
+17. Backend API.
+18. Subscription management.
+19. Secure configuration management.
+
+Do not simplify the application into a basic dashboard with nonfunctional buttons.
+
+Do not use fake transaction results.
+
+Do not simulate successful financial transactions in production.
+
+Do not silently skip difficult features.
+
+When a technical limitation exists, explain it and implement the closest permitted, practical alternative.
+
+---
+
+# SECTION 2 — PRODUCT DEFINITION
+
+amaMomoApp is a multi-network mobile money agent assistant.
+
+The application provides one interface through which an agent can manage transactions across MTN, AT Money and Telecel.
+
+The application is intended to reduce repetitive manual USSD navigation, make transactions easier to initiate, and maintain accurate transaction records.
+
+It should feel like a proper mobile money agent terminal rather than a generic banking application.
+
+The most important principle is:
+
+**An agent should be able to open the application, select a network, select a transaction type, enter the necessary information and follow a clear transaction process without unnecessary navigation.**
+
+---
+
+# SECTION 3 — UI DESIGN REFERENCE: MBANKER
+
+This section is mandatory.
+
+The application must follow the general interface structure and user experience of MBanker.
+
+Reference application:
+
+https://play.google.com/store/apps/details?id=com.strasysgh.ussd
+
+The objective is not to clone MBanker pixel-for-pixel.
+
+The objective is to study its organizational structure and recreate a similarly convenient agent experience using amaMomoApp branding.
+
+Before designing the application:
+
+1. Inspect the MBanker Google Play listing.
+2. Inspect its screenshots.
+3. If available, inspect the actual application.
+4. Identify its dashboard structure.
+5. Identify how it organizes network selection.
+6. Identify how transaction categories are displayed.
+7. Identify its transaction forms.
+8. Identify how transaction processing is presented.
+9. Identify how users access transaction history and other functions.
+10. Use those observations to establish the amaMomoApp screen hierarchy.
+
+If you cannot inspect the actual application, do not invent claims about its exact interface. Request screenshots or use the available reference material.
+
+## 3.1 Visual identity
+
+Create a separate brand identity for amaMomoApp.
+
+Do not use MBanker's logo, name, proprietary artwork or exact design assets.
+
+The amaMomoApp interface should look:
+
+- Premium.
+- Modern.
+- Clean.
+- Professional.
+- Trustworthy.
+- Efficient.
+- Financially credible.
+
+Avoid:
+
+- Generic AI-generated dashboards.
+- Excessive gradients.
+- Unnecessary glass effects.
+- Random floating cards.
+- Excessive rounded containers.
+- Oversized typography.
+- Poor spacing.
+- Inconsistent icons.
+- Unnecessary animations.
+
+Create a reusable design system with:
+
+- Primary and secondary colours.
+- Background colours.
+- Typography.
+- Font weights.
+- Spacing.
+- Border radii.
+- Buttons.
+- Input fields.
+- Cards.
+- Navigation.
+- Bottom sheets.
+- Dialogs.
+- Transaction status indicators.
+- Loading states.
+- Empty states.
+- Error states.
+
+The entire application must follow one consistent design system.
+
+## 3.2 Main navigation
+
+Use a structure that provides convenient access to the main functions.
+
+Recommended navigation:
+
+1. Home.
+2. Transactions.
+3. History.
+4. Reports.
+5. Account.
+
+Do not force every feature onto the dashboard.
+
+The dashboard should prioritize the most frequently used agent operations.
+
+---
+
+# SECTION 4 — NETWORK AND TRANSACTION RESPONSIBILITIES
+
+The application must support three networks.
+
+## 4.1 MTN MoMo
+
+Supported functions:
+
+- Cash-in.
+- Cash-out.
+- Airtime.
+- Data.
+- Balance enquiry, where supported.
+
+MTN cash-in and cash-out use agent-side USSD workflows.
+
+## 4.2 AirtelTigo / AT Money
+
+Supported functions:
+
+- Cash-in.
+- Customer-led cash-out.
+- Airtime.
+- Data.
+- Balance enquiry, where supported.
+
+AT cash-in, airtime and data use agent-side USSD workflows where supported.
+
+AT cash-out is customer-led.
+
+## 4.3 Telecel Cash
+
+Supported functions:
+
+- Cash-in.
+- Customer-led cash-out.
+- Airtime.
+- Data.
+- Balance enquiry, where supported.
+
+Telecel cash-in, airtime and data use agent-side USSD workflows where supported.
+
+Telecel cash-out is customer-led.
+
+## 4.4 Transaction capability matrix
+
+| Transaction | MTN | AT Money | Telecel |
+|---|---|---|---|
+| Cash-in | Agent USSD | Agent USSD | Agent USSD |
+| Cash-out | Agent USSD | Customer-led | Customer-led |
+| Airtime | Agent USSD | Agent USSD | Agent USSD |
+| Data | Agent USSD | Agent USSD | Agent USSD |
+| Balance | Where supported | Where supported | Where supported |
+
+Every network must have its own configuration.
+
+Never assume that the same USSD code, menu option, input order or confirmation sequence applies across networks.
+
+---
+
+# SECTION 5 — APPLICATION SCREEN STRUCTURE
+
+Implement the following screens.
+
+## 5.1 Splash screen
+
+Display:
+
+- amaMomoApp logo.
+- Application name.
+- Simple branded loading animation.
+
+Check:
+
+- Authentication status.
+- Device registration.
+- Subscription entitlement.
+- Application configuration.
+
+Then navigate appropriately.
+
+## 5.2 Onboarding
+
+Introduce the application briefly.
+
+Explain:
+
+- Supported mobile money networks.
+- Transaction functionality.
+- Transaction history.
+- Reports.
+- Seven-day free trial.
+
+Do not make onboarding unnecessarily long.
+
+## 5.3 Registration
+
+Collect only necessary information.
+
+Suggested fields:
+
+- Full name.
+- Phone number.
+- Email address.
+- Password.
+- Password confirmation.
+
+Validate all fields.
+
+Do not activate the trial before the backend successfully creates the account.
+
+After successful registration, activate the seven-day trial automatically.
+
+## 5.4 Login
+
+Provide:
+
+- Email or phone login, depending on the selected authentication implementation.
+- Password.
+- Show/hide password.
+- Forgot password.
+- Login button.
+
+Handle authentication errors clearly.
+
+## 5.5 Dashboard
+
+The dashboard should contain:
+
+- Welcome message.
+- Current subscription status.
+- Selected network.
+- Main transaction shortcuts.
+- Today's transaction summary.
+- Recent transactions.
+- Access to reports.
+
+Main transaction shortcuts:
+
+- Cash-in.
+- Cash-out.
+- Airtime.
+- Data.
+
+The user should be able to start a transaction with minimal navigation.
+
+## 5.6 Network selection
+
+Display three distinct network options:
+
+- MTN MoMo.
+- AT Money.
+- Telecel Cash.
+
+When a network is selected, preserve that selection throughout the transaction process.
+
+Display the selected network clearly on subsequent screens.
+
+## 5.7 Transaction selection
+
+Show only the transaction categories supported by the selected network.
+
+For example:
+
+MTN:
+- Cash-in.
+- Cash-out.
+- Airtime.
+- Data.
+
+AT:
+- Cash-in.
+- Cash-out.
+- Airtime.
+- Data.
+
+Telecel:
+- Cash-in.
+- Cash-out.
+- Airtime.
+- Data.
+
+The AT and Telecel cash-out options must open the customer-led workflow, not the agent USSD automation engine.
+
+## 5.8 Transaction forms
+
+Create separate forms for:
+
+- Cash-in.
+- Cash-out.
+- Airtime.
+- Data.
+
+Each form must have appropriate validation and a transaction summary before execution.
+
+## 5.9 Processing screen
+
+Display:
+
+- Network.
+- Transaction type.
+- Customer number.
+- Amount.
+- Current status.
+- Processing indicator.
+- Available action to cancel safely.
+
+Do not display a false success state.
+
+## 5.10 Transaction result screen
+
+Display:
+
+- Success, failure or unknown status.
+- Network.
+- Transaction type.
+- Recipient.
+- Amount.
+- Provider reference where available.
+- Transaction date and time.
+- Confirmation source.
+
+Provide appropriate next actions.
+
+For example:
+
+- Return to dashboard.
+- View transaction.
+- Start another transaction.
+
+---
+
+# SECTION 6 — USSD AUTOMATION ENGINE
+
+This is a critical part of amaMomoApp.
+
+Do not implement USSD automation as a collection of hardcoded text fields and arbitrary delays.
+
+Build a configurable, state-driven USSD automation engine.
+
+The engine must understand the current USSD prompt, determine the expected response and move through the correct transaction flow.
+
+## 6.1 Technical implementation
+
+Use:
+
+- Kotlin.
+- Android Telephony APIs where supported.
+- Android Accessibility Service where permitted and necessary.
+- Coroutines.
+- StateFlow.
+- ViewModel.
+- Room database.
+
+Respect Android permissions and platform restrictions.
+
+USSD interaction capabilities vary by Android version, manufacturer, SIM configuration and carrier.
+
+Do not assume every Android device permits programmatic access to all USSD responses.
+
+Where a system API is unavailable, use an appropriate user-assisted interaction flow.
+
+Do not bypass Android permission systems or silently control the user's phone.
+
+## 6.2 USSD engine architecture
+
+Create these independent components.
+
+### A. UssdLauncher
+
+Responsibilities:
+
+- Load the selected network profile.
+- Load the requested transaction flow.
+- Retrieve the verified USSD entry code.
+- Check SIM availability.
+- Initiate the session using an approved Android mechanism.
+- Report initiation errors.
+
+### B. UssdSessionManager
+
+Responsibilities:
+
+- Create a unique session ID.
+- Track session state.
+- Maintain current flow step.
+- Prevent overlapping transactions.
+- Track session timeout.
+- Support cancellation.
+- Prevent accidental duplicate execution.
+
+### C. UssdPromptObserver
+
+Responsibilities:
+
+- Receive USSD responses using the permitted mechanism.
+- Extract visible dialogue text.
+- Normalize whitespace.
+- Normalize supported character variations.
+- Pass the observed prompt to the flow controller.
+
+### D. UssdPromptMatcher
+
+Responsibilities:
+
+- Compare the observed text against expected prompts.
+- Support exact matching.
+- Support normalized matching.
+- Support configurable regular expressions.
+- Support multiple recognized variants.
+- Detect unexpected prompts.
+- Detect provider errors.
+- Detect session termination.
+
+### E. UssdFlowController
+
+Responsibilities:
+
+- Determine the current flow step.
+- Check the observed prompt.
+- Determine the next action.
+- Substitute customer and transaction variables.
+- Request manual input when required.
+- Send the appropriate response when permitted.
+- Advance to the next state only after the expected prompt is observed.
+
+### F. UssdInputHandler
+
+Responsibilities:
+
+- Handle dynamic values.
+- Format phone numbers.
+- Format monetary amounts.
+- Validate entered values.
+- Prevent empty inputs.
+- Prevent accidental wrong-network values.
+
+### G. UssdConfirmationHandler
+
+Responsibilities:
+
+- Detect confirmation screens.
+- Display transaction details.
+- Require appropriate authorization.
+- Never bypass provider confirmation requirements.
+
+### H. UssdResultDetector
+
+Responsibilities:
+
+- Recognize successful responses.
+- Recognize failed responses.
+- Recognize pending responses.
+- Recognize insufficient-balance responses.
+- Recognize invalid-recipient responses.
+- Recognize timeout responses.
+- Recognize unexpected responses.
+
+### I. UssdRecoveryManager
+
+Responsibilities:
+
+- Handle timeouts.
+- Handle network interruptions.
+- Handle unexpected menu changes.
+- Handle cancelled sessions.
+- Handle application interruptions.
+- Preserve transaction state.
+- Prevent automatic duplicate financial operations.
+
+---
+
+# SECTION 7 — EXACT USSD FLOW CONFIGURATION
+
+The USSD engine must use structured flow definitions.
+
+Do not scatter USSD codes and menu choices throughout the Android source code.
+
+Create a centralized network configuration system.
+
+Each flow must contain:
+
+- Network identifier.
+- Transaction type.
+- Flow version.
+- Entry code.
+- Initial prompt.
+- Expected prompts.
+- Input actions.
+- Confirmation checkpoints.
+- Result prompts.
+- Error prompts.
+- Timeout configuration.
+- Enabled status.
+
+## 7.1 Required flow profiles
+
+Create these profiles:
+
+### MTN
+- MTN_CASH_IN
+- MTN_CASH_OUT
+- MTN_AIRTIME
+- MTN_DATA
+- MTN_BALANCE
+
+### AT Money
+- AT_CASH_IN
+- AT_AIRTIME
+- AT_DATA
+- AT_BALANCE
+
+### Telecel
+- TELECEL_CASH_IN
+- TELECEL_AIRTIME
+- TELECEL_DATA
+- TELECEL_BALANCE
+
+AT and Telecel cash-out must use customer-led guides.
+
+## 7.2 USSD flow template
+
+Implement a structured configuration similar to this:
+
+```yaml
+network: MTN
+transaction_type: CASH_IN
+
+flow_id: MTN_CASH_IN
+version: 1
+
+entry_code: VERIFY_FROM_AGENT_SIM
+
+timeout_seconds: 90
+
+steps:
+
+  - id: START
+    type: INITIATE_USSD
+    code: VERIFY_FROM_AGENT_SIM
+    next: MAIN_MENU
+
+  - id: MAIN_MENU
+    type: MATCH_PROMPT
+    expected_prompt: VERIFY_FROM_AGENT_SIM
+    action: SEND_VERIFIED_MENU_OPTION
+    next: ENTER_CUSTOMER_NUMBER
+
+  - id: ENTER_CUSTOMER_NUMBER
+    type: MATCH_PROMPT
+    expected_prompt: VERIFY_FROM_AGENT_SIM
+    action: SEND_VARIABLE
+    variable: customer_phone
+    next: ENTER_AMOUNT
+
+  - id: ENTER_AMOUNT
+    type: MATCH_PROMPT
+    expected_prompt: VERIFY_FROM_AGENT_SIM
+    action: SEND_VARIABLE
+    variable: amount
+    next: REVIEW_TRANSACTION
+
+  - id: REVIEW_TRANSACTION
+    type: MATCH_PROMPT
+    expected_prompt: VERIFY_FROM_AGENT_SIM
+    action: REQUIRE_CONFIRMATION
+    next: FINAL_RESULT
+
+  - id: FINAL_RESULT
+    type: MATCH_RESULT
+    success_prompts:
+      - VERIFY_FROM_AGENT_SIM
+
+    failure_prompts:
+      - VERIFY_FROM_AGENT_SIM
+
+    pending_prompts:
+      - VERIFY_FROM_AGENT_SIM
+```
+
+This is an implementation template, not a claim that the actual MTN menu follows this exact sequence.
+
+The final sequence must be populated from verified live agent USSD sessions.
+
+## 7.3 Prompt matching
+
+Each expected prompt must support several variants.
+
+Example configuration:
+
+```json
+{
+  "step_id": "ENTER_CUSTOMER_NUMBER",
+  "expected_prompts": [
+    "VERIFIED_PROMPT_VARIANT_1",
+    "VERIFIED_PROMPT_VARIANT_2"
+  ],
+  "match_mode": "NORMALIZED_TEXT",
+  "input_type": "PHONE_NUMBER",
+  "next_step": "ENTER_AMOUNT"
+}
+```
+
+The system must not continue merely because a screen appeared.
+
+It must verify that the observed prompt matches the expected prompt for the current step.
+
+If no match is found:
+
+1. Stop automated input.
+2. Display the observed prompt to the user where possible.
+3. Mark the session as requiring manual intervention.
+4. Do not guess the next menu option.
+5. Preserve the transaction as pending or unknown as appropriate.
+
+## 7.4 Variable substitution
+
+Support these transaction variables:
+
+```text
+{customer_phone}
+{amount}
+{bundle_code}
+{bundle_price}
+{recipient_phone}
+{network}
+```
+
+Values must be validated before being used.
+
+Never allow untrusted text to be substituted into a USSD command without validation.
+
+## 7.5 USSD prompt examples
+
+The following are illustrative prompt categories only.
+
+They must be replaced with actual text observed on authorized agent SIMs.
+
+**Initial menu**
+
+Expected prompt category:
+
+```text
+VERIFIED_NETWORK_MAIN_MENU
+```
+
+Possible information to capture:
+
+- Menu title.
+- Cash-in option.
+- Cash-out option.
+- Airtime option.
+- Data option.
+- Balance option.
+
+**Customer number prompt**
+
+```text
+VERIFIED_CUSTOMER_NUMBER_PROMPT
+```
+
+Input:
+
+```text
+{customer_phone}
+```
+
+**Amount prompt**
+
+```text
+VERIFIED_AMOUNT_PROMPT
+```
+
+Input:
+
+```text
+{amount}
+```
+
+**Transaction confirmation prompt**
+
+```text
+VERIFIED_TRANSACTION_CONFIRMATION_PROMPT
+```
+
+Before proceeding, ensure the displayed transaction corresponds to the intended recipient and amount.
+
+**Final success prompt**
+
+```text
+VERIFIED_SUCCESS_RESPONSE
+```
+
+**Final failure prompt**
+
+```text
+VERIFIED_FAILURE_RESPONSE
+```
+
+Never treat these illustrative strings as real provider messages.
+
+---
+
+# SECTION 8 — HOW TO CAPTURE AND VERIFY REAL USSD PROMPTS
+
+Build a USSD configuration and testing mode for development.
+
+This mode is not a production transaction shortcut.
+
+It should allow a developer or authorized tester to:
+
+1. Select a network.
+2. Select a transaction type.
+3. Initiate a test USSD session manually.
+4. Observe the provider's actual response.
+5. Record the exact prompt text.
+6. Identify the appropriate next menu option.
+7. Record the expected response.
+8. Save the sequence as a draft flow.
+9. Review the complete sequence.
+10. Test it again before enabling it.
+
+For every verified step, capture:
+
+- Network.
+- Agent SIM used.
+- Transaction type.
+- Prompt text.
+- Selected option.
+- Input type.
+- Expected next prompt.
+- Success result.
+- Failure result.
+- Verification date.
+- Flow version.
+
+A flow must not be marked production-ready until it has been tested successfully.
+
+Do not enable incomplete flows.
+
+If a required network code or prompt is missing, clearly show:
+
+**USSD CONFIGURATION REQUIRED — VERIFY WITH AUTHORIZED AGENT SIM**
+
+Do not invent a default code.
+
+---
+
+# SECTION 9 — SENSITIVE USSD INPUTS AND PIN HANDLING
+
+This section is mandatory.
+
+Financial PINs must never be stored.
+
+The application must not:
+
+- Save an agent PIN.
+- Save a customer PIN.
+- Save PINs in transaction logs.
+- Save PINs in analytics.
+- Send PINs to the backend.
+- Include PINs in crash reports.
+- Automatically reuse a PIN.
+- Attempt to bypass provider authentication.
+
+If the provider requires a PIN, OTP or other sensitive authorization:
+
+1. Pause automated processing.
+2. Display an authorization-required message.
+3. Allow the user to complete the authorization through the permitted provider interface.
+4. Resume only when a valid next prompt or result is detected.
+
+The application must never ask for the customer's PIN during a customer-led cash-out.
+
+---
+
+# SECTION 10 — MTN CASH-IN WORKFLOW
+
+Create the following user experience.
+
+### Screen 1: Cash-in form
+
+Fields:
+
+- Customer phone number.
+- Amount.
+
+Display:
+
+- MTN network identity.
+- Cash-in title.
+- Input validation.
+- Continue button.
+
+### Screen 2: Transaction review
+
+Display:
+
+- Network: MTN.
+- Transaction: Cash-in.
+- Customer number.
+- Amount.
+
+Actions:
+
+- Confirm.
+- Cancel.
+
+### Screen 3: USSD processing
+
+On confirmation:
+
+1. Create a local transaction record.
+2. Assign a unique transaction ID.
+3. Load MTN_CASH_IN.
+4. Check SIM availability.
+5. Initiate the verified USSD code.
+6. Observe the initial prompt.
+7. Match the prompt.
+8. Submit the appropriate verified menu option.
+9. Observe the next prompt.
+10. Submit the validated customer number.
+11. Observe the next prompt.
+12. Submit the validated amount.
+13. Observe the confirmation prompt.
+14. Pause where provider authorization is required.
+15. Continue after valid authorization.
+16. Observe the final response.
+17. Determine transaction outcome.
+18. Save the final status.
+
+### Screen 4: Result
+
+Display the actual result.
+
+Do not assume success.
+
+---
+
+# SECTION 11 — MTN CASH-OUT WORKFLOW
+
+Create a separate cash-out flow.
+
+### Screen 1
+
+Fields:
+
+- Customer phone number.
+- Withdrawal amount.
+
+### Screen 2
+
+Display:
+
+- MTN.
+- Cash-out.
+- Customer number.
+- Amount.
+
+### Screen 3
+
+Load MTN_CASH_OUT.
+
+Follow the verified flow configuration.
+
+At every step:
+
+- Match the expected prompt.
+- Enter only the expected variable.
+- Pause at authorization checkpoints.
+- Detect unexpected menu changes.
+- Do not submit unverified options.
+
+### Screen 4
+
+Display the verified provider result.
+
+Save:
+
+- Transaction reference.
+- Status.
+- Amount.
+- Customer number.
+- Date.
+- Time.
+- Confirmation source.
+
+---
+
+# SECTION 12 — AT MONEY CASH-IN WORKFLOW
+
+Create an agent-side cash-in workflow.
+
+### Screen 1
+
+Fields:
+
+- Customer number.
+- Amount.
+
+### Screen 2
+
+Review:
+
+- Network: AT Money.
+- Transaction: Cash-in.
+- Customer number.
+- Amount.
+
+### Screen 3
+
+Load AT_CASH_IN.
+
+Use the verified AT agent USSD profile.
+
+Follow the configured prompts.
+
+Do not reuse MTN menu sequences.
+
+Pause for authorization when required.
+
+### Screen 4
+
+Determine and display the provider-confirmed outcome.
+
+Save the transaction.
+
+---
+
+# SECTION 13 — TELECEL CASH-IN WORKFLOW
+
+Create an agent-side cash-in workflow.
+
+### Screen 1
+
+Fields:
+
+- Customer number.
+- Amount.
+
+### Screen 2
+
+Review transaction details.
+
+### Screen 3
+
+Load TELECEL_CASH_IN.
+
+Follow the verified Telecel agent USSD profile.
+
+Match each prompt.
+
+Submit only the expected input.
+
+Pause for authorization when necessary.
+
+### Screen 4
+
+Display the actual provider response and save the transaction.
+
+---
+
+# SECTION 14 — AT MONEY AND TELECEL CUSTOMER-LED CASH-OUT
+
+These workflows must not use the agent-side USSD automation engine.
+
+## AT Money cash-out
+
+### Screen 1
+
+Display:
+
+- AT Money.
+- Cash-out.
+- Customer number.
+- Amount.
+
+### Screen 2
+
+Display customer instructions based on the verified AT cash-out process.
+
+The customer uses their own phone.
+
+The customer performs the required steps.
+
+The customer enters their own PIN.
+
+The agent must not request or capture the customer's PIN.
+
+### Screen 3 — Verification
+
+Display a checklist:
+
+- Customer initiated the withdrawal.
+- Customer completed the required authorization.
+- Agent received or observed provider confirmation.
+- Amount verified.
+- Recipient details verified.
+
+### Screen 4 — Record outcome
+
+Options:
+
+- Mark verified successful.
+- Mark failed.
+- Keep awaiting verification.
+
+If successful, ask for a provider reference where available.
+
+Record that the confirmation was agent-verified rather than agent-side USSD automated.
+
+## Telecel cash-out
+
+Use the same overall structure but provide Telecel-specific verified instructions.
+
+Do not reuse AT customer instructions.
+
+Do not invent provider steps.
+
+---
+
+# SECTION 15 — AIRTIME PURCHASES
+
+Create separate network profiles:
+
+- MTN_AIRTIME.
+- AT_AIRTIME.
+- TELECEL_AIRTIME.
+
+Form fields:
+
+- Recipient number.
+- Amount.
+
+Validate the recipient number and amount.
+
+Show transaction review.
+
+Initiate the appropriate network profile.
+
+Use verified prompts.
+
+Handle authorization requirements.
+
+Detect success or failure.
+
+Save the result.
+
+Do not display success until supported by provider confirmation.
+
+---
+
+# SECTION 16 — DATA BUNDLE PURCHASES
+
+Create separate profiles:
+
+- MTN_DATA.
+- AT_DATA.
+- TELECEL_DATA.
+
+Each profile should support verified bundle configurations.
+
+A bundle record should contain:
+
+```json
+{
+  "network": "MTN",
+  "bundle_id": "VERIFIED_BUNDLE_ID",
+  "display_name": "VERIFIED_BUNDLE_NAME",
+  "allowance": "VERIFIED_ALLOWANCE",
+  "price": 0,
+  "validity": "VERIFIED_VALIDITY",
+  "provider_menu_option": "VERIFIED_OPTION",
+  "active": false,
+  "last_verified_at": null
+}
+```
+
+The sample values are placeholders, not real bundle prices.
+
+The application must:
+
+1. Load the selected network's active bundle configuration.
+2. Display available bundles.
+3. Allow bundle selection.
+4. Collect recipient number.
+5. Display bundle price and validity.
+6. Review the transaction.
+7. Load the corresponding network USSD flow.
+8. Execute the verified steps.
+9. Detect the final response.
+10. Save the result.
+
+If the provider changes the bundle menu, the configuration must be updateable.
+
+Do not hardcode bundle options into multiple screens.
+
+---
+
+# SECTION 17 — TRANSACTION LIFECYCLE
+
+Every transaction must use these states:
+
+```text
+DRAFT
+PROCESSING
+AWAITING_CUSTOMER
+AWAITING_VERIFICATION
+SUCCESSFUL
+FAILED
+CANCELLED
+UNKNOWN
+```
+
+State transitions must be controlled.
+
+Examples:
+
+```text
+DRAFT -> PROCESSING
+
+PROCESSING -> SUCCESSFUL
+
+PROCESSING -> FAILED
+
+PROCESSING -> UNKNOWN
+
+PROCESSING -> CANCELLED
+
+AWAITING_CUSTOMER -> AWAITING_VERIFICATION
+
+AWAITING_VERIFICATION -> SUCCESSFUL
+
+AWAITING_VERIFICATION -> FAILED
+```
+
+Do not allow invalid transitions.
+
+An unknown transaction must not automatically become successful.
+
+Do not automatically repeat financial operations when the previous result is uncertain.
+
+Every state change must be recorded in TransactionEvents.
+
+---
+
+# SECTION 18 — TRANSACTION HISTORY
+
+Store every transaction attempt locally.
+
+Required fields:
+
+- Local transaction ID.
+- Provider reference.
+- Network.
+- Transaction type.
+- Processing method.
+- Recipient number.
+- Amount.
+- Bundle details.
+- Transaction status.
+- Confirmation source.
+- Provider response.
+- Created date.
+- Updated date.
+
+History functionality:
+
+- Search.
+- Filter by network.
+- Filter by transaction type.
+- Filter by status.
+- Filter by date.
+- View transaction details.
+- Export transactions.
+
+The application must retain records after:
+
+- Application restart.
+- Device restart.
+- Temporary internet loss.
+- Subscription expiration.
+
+Subscription expiration must not automatically delete transaction history.
+
+---
+
+# SECTION 19 — DASHBOARD AND REPORTS
+
+Display:
+
+- Total daily transaction attempts.
+- Successful transaction count.
+- Failed transaction count.
+- Pending transactions.
+- Total successful transaction value.
+- Network breakdown.
+- Transaction type breakdown.
+
+Weekly and monthly reports must be available.
+
+Do not calculate profit or commission unless actual verified commission information exists.
+
+Display transaction value and profit as separate concepts.
+
+---
+
+# SECTION 20 — SEVEN-DAY FREE TRIAL
+
+Every newly registered user receives a seven-day free trial automatically.
+
+No manual activation.
+
+No payment required at registration.
+
+After successful backend registration:
+
+1. Create the user.
+2. Check trial eligibility.
+3. Create trial entitlement.
+4. Set status to TRIAL.
+5. Record trial start time.
+6. Calculate expiration as seven days later.
+7. Grant access to paid features.
+8. Return subscription information to the Android app.
+
+Use server UTC time.
+
+Do not calculate entitlement based only on the device clock.
+
+Do not create a new trial on every login.
+
+Do not grant a new trial after every reinstall.
+
+One account receives one initial trial unless an administrator explicitly grants an exception.
+
+## Trial interface
+
+Display:
+
+- Free Trial Active.
+- Remaining days.
+- Exact expiration date.
+- Subscription options.
+
+Examples:
+
+- 7 days remaining.
+- 5 days remaining.
+- 2 days remaining.
+- Trial ends today.
+- Trial expired.
+
+When the trial expires:
+
+- Change entitlement to EXPIRED.
+- Restrict paid transaction functions.
+- Display the subscription screen.
+- Preserve existing user data.
+- Preserve transaction history.
+- Allow subscription renewal.
+
+---
+
+# SECTION 21 — PAYSTACK SUBSCRIPTIONS
+
+Paystack must be the application's subscription payment provider.
+
+Do not implement Google Play Billing.
+
+Do not use Google In-App Purchases.
+
+## Backend payment process
+
+1. User selects a subscription plan.
+2. Android sends an authenticated request to the backend.
+3. Backend validates the user and plan.
+4. Backend initializes Paystack payment.
+5. Backend returns the checkout URL.
+6. Android opens Paystack Checkout.
+7. User completes payment.
+8. Paystack sends a webhook.
+9. Backend verifies webhook signature.
+10. Backend verifies transaction with Paystack.
+11. Backend validates reference, amount, currency and status.
+12. Backend records payment.
+13. Backend updates subscription entitlement.
+14. Android refreshes subscription status.
+
+Never expose the Paystack Secret Key in Android source code.
+
+Never activate paid access based only on a client-side redirect.
+
+## Payment currency
+
+GHS.
+
+## Subscription plans
+
+Implement configurable:
+
+- Monthly.
+- Quarterly.
+- Annual.
+
+Do not invent final subscription prices.
+
+Allow plan prices to be configured in the backend.
+
+## Recurring payments
+
+Use automatic recurring billing only when the selected Paystack payment method provides an eligible reusable authorization.
+
+For Ghanaian Mobile Money payments without recurring authorization, require the user to complete a new checkout when renewal is due.
+
+Do not pretend that all payment channels support automatic recurring debits.
+
+## Payment history
+
+Display:
+
+- Payment reference.
+- Amount.
+- Currency.
+- Payment date.
+- Payment method.
+- Payment status.
+- Subscription plan.
+
+Webhook handling must be idempotent.
+
+Repeated webhooks must not grant duplicate subscription periods.
+
+---
+
+# SECTION 22 — OFFLINE-FIRST IMPLEMENTATION
+
+Use Room/SQLite.
+
+The following must remain accessible offline:
+
+- Dashboard based on locally available records.
+- Transaction history.
+- Search.
+- Reports.
+- Account information already cached.
+- Local settings.
+
+USSD transactions require cellular service.
+
+Paystack payments and online account operations require internet access.
+
+Implement synchronization carefully.
+
+Do not delete local records after failed synchronization.
+
+---
+
+# SECTION 23 — BACKEND AND DATABASE
+
+Preferred backend:
+
+- Node.js.
+- Express.js.
+- PostgreSQL.
+- Prisma.
+
+Implement authentication and authorization.
+
+Required entities:
+
+### User
+- id
+- full_name
+- email
+- phone
+- password_hash or secure authentication reference
+- account_status
+- created_at
+
+### SubscriptionPlan
+- id
+- name
+- price
+- currency
+- billing_interval
+- active
+
+### SubscriptionEntitlement
+- id
+- user_id
+- status
+- trial_started_at
+- trial_expires_at
+- paid_until
+- current_plan_id
+
+### Payment
+- id
+- user_id
+- plan_id
+- provider
+- reference
+- amount
+- currency
+- channel
+- status
+- paid_at
+
+### Transaction
+- id
+- user_id
+- provider_reference
+- network
+- transaction_type
+- processing_type
+- recipient_number
+- amount
+- bundle_id
+- status
+- confirmation_source
+- provider_response
+- created_at
+- updated_at
+
+### TransactionEvent
+- id
+- transaction_id
+- event_type
+- previous_status
+- new_status
+- details
+- created_at
+
+### UssdFlowProfile
+- id
+- network
+- transaction_type
+- version
+- configuration
+- enabled
+- last_verified_at
+
+### NetworkProfile
+- id
+- network
+- configuration
+- version
+- updated_at
+
+### DataBundle
+- id
+- network
+- name
+- allowance
+- price
+- validity
+- provider_option
+- active
+- last_verified_at
+
+Use proper migrations, constraints and indexes.
+
+The local Android database must mirror the necessary transaction information.
+
+---
+
+# SECTION 24 — SECURITY
+
+Mandatory requirements:
+
+- No PIN storage.
+- No customer PIN collection.
+- No Paystack Secret Key in Android.
+- HTTPS.
+- Secure authentication.
+- Backend input validation.
+- Rate limiting.
+- Payment verification.
+- Webhook signature verification.
+- Idempotent payment processing.
+- Duplicate transaction protection.
+- Secure local data handling.
+- Sensitive information redaction in logs.
+- Session expiration and secure logout.
+
+Never bypass provider authorization.
+
+Never automatically repeat an uncertain financial transaction.
+
+---
+
+# SECTION 25 — ADMINISTRATION AND CONFIGURATION
+
+Prepare backend functionality for:
+
+- User management.
+- Subscription management.
+- Plan configuration.
+- Payment history.
+- Network configuration.
+- USSD flow configuration.
+- Data bundle configuration.
+- Account suspension.
+- Trial management.
+
+The most important administrative requirement is the ability to update verified USSD flows and bundle configurations without releasing a new Android version, where the architecture and security model permit it.
+
+Only trusted administrators should be allowed to publish production configurations.
+
+Version every published USSD flow.
+
+Retain previous versions for rollback.
+
+---
+
+# SECTION 26 — DEVELOPMENT STACK
+
+Android:
+
+- Kotlin.
+- Android SDK.
+- Jetpack Compose.
+- Material 3.
+- Room.
+- ViewModel.
+- Kotlin Coroutines.
+- StateFlow.
+- Retrofit.
+
+Backend:
+
+- Node.js.
+- Express.
+- PostgreSQL.
+- Prisma.
+- REST API.
+
+Avoid unnecessary external services.
+
+Do not introduce paid AI APIs.
+
+Do not add AI features that are not required.
+
+Do not introduce Docker unless necessary.
+
+Keep deployment straightforward.
+
+---
+
+# SECTION 27 — DEVELOPMENT ORDER
+
+Follow this order.
+
+### Phase 1: Reference and design
+- Inspect MBanker.
+- Establish amaMomoApp branding.
+- Create design system.
+- Approve dashboard.
+- Approve transaction screens.
+- Define navigation.
+
+### Phase 2: Project foundation
+- Android project.
+- Backend project.
+- PostgreSQL.
+- Prisma.
+- Database migrations.
+- Authentication.
+- API structure.
+
+### Phase 3: Trial and subscription
+- Seven-day trial.
+- Entitlement checks.
+- Subscription screen.
+- Paystack initialization.
+- Webhooks.
+- Payment verification.
+
+### Phase 4: Local transaction foundation
+- Room database.
+- Transaction model.
+- Transaction lifecycle.
+- Transaction history.
+- Transaction event logging.
+
+### Phase 5: USSD engine
+- UssdLauncher.
+- UssdSessionManager.
+- UssdPromptObserver.
+- UssdPromptMatcher.
+- UssdFlowController.
+- UssdInputHandler.
+- UssdConfirmationHandler.
+- UssdResultDetector.
+- UssdRecoveryManager.
+
+### Phase 6: Network integrations
+- MTN cash-in.
+- MTN cash-out.
+- AT cash-in.
+- Telecel cash-in.
+- AT customer-led cash-out.
+- Telecel customer-led cash-out.
+- Airtime.
+- Data.
+
+### Phase 7: Reports and offline
+- Dashboard analytics.
+- Daily reports.
+- Weekly reports.
+- Monthly reports.
+- Export.
+- Offline access.
+
+### Phase 8: Testing
+- Real-device testing.
+- Network testing.
+- USSD prompt testing.
+- Subscription testing.
+- Payment testing.
+- Offline testing.
+- Security testing.
+
+### Phase 9: Release
+- Production configuration.
+- App signing.
+- Release build.
+- Play Store preparation.
+
+---
+
+# SECTION 28 — REQUIRED TEST CASES
+
+Test every network and transaction type.
+
+## USSD tests
+
+- Correct USSD entry code.
+- Incorrect USSD entry code.
+- Initial menu recognition.
+- Correct menu selection.
+- Incorrect menu prompt.
+- Phone number validation.
+- Amount validation.
+- Confirmation screen recognition.
+- Success response recognition.
+- Failure response recognition.
+- Insufficient balance.
+- Invalid recipient.
+- User cancellation.
+- USSD timeout.
+- Network interruption.
+- Unexpected menu.
+- Application backgrounding.
+- Application restart.
+- Dual-SIM selection.
+
+## Financial safety tests
+
+- No duplicate execution.
+- No false success.
+- No automatic retry after unknown result.
+- No PIN stored.
+- No customer PIN collected.
+- No incorrect transaction amount.
+- No wrong recipient.
+- No unauthorized flow configuration.
+
+## Subscription tests
+
+- New account receives trial.
+- Trial starts once.
+- Trial expires after seven days.
+- Reinstall does not reset trial.
+- Login does not reset trial.
+- Failed payment does not activate subscription.
+- Successful verified payment activates subscription.
+- Repeated webhook does not grant duplicate time.
+- Expired subscription restricts paid functions.
+- Transaction history remains available.
+
+---
+
+# SECTION 29 — IMPORTANT DEVELOPMENT RULES
+
+1. Do not build a generic interface.
+2. Do not ignore the MBanker reference.
+3. Do not copy MBanker's proprietary assets.
+4. Do not hardcode unverified USSD codes.
+5. Do not invent provider menu prompts.
+6. Do not reuse one network's USSD configuration for another.
+7. Do not treat a closed USSD session as success.
+8. Do not collect or store PINs.
+9. Do not implement Google Play Billing.
+10. Do not expose Paystack Secret Keys.
+11. Do not fake transactions.
+12. Do not create fake analytics.
+13. Do not leave visible controls nonfunctional.
+14. Do not delete transaction history after subscription expiration.
+15. Do not build Marketplace or Agent Forum in this release.
+16. Do not add unnecessary AI features.
+17. Do not replace native Android with a web application.
+18. Do not skip real-device testing.
+
+If a configuration value is unknown, mark it clearly as requiring verification.
+
+Never guess a financial transaction instruction.
+
+---
+
+# SECTION 30 — FINAL ACCEPTANCE CRITERIA
+
+The project is complete only when:
+
+- The application has a polished MBanker-inspired structure with original branding.
+- Registration and authentication work.
+- Seven-day trial activates automatically.
+- Trial entitlement is backend-controlled.
+- Paystack subscriptions work.
+- Google Play Billing is absent.
+- MTN cash-in works.
+- MTN cash-out works.
+- AT cash-in works.
+- Telecel cash-in works.
+- AT customer-led cash-out works.
+- Telecel customer-led cash-out works.
+- Supported airtime workflows work.
+- Supported data workflows work.
+- USSD prompt matching works.
+- Unexpected USSD prompts are safely handled.
+- Transactions are verified before being marked successful.
+- Local transaction records persist.
+- History and reports work.
+- Core local functions work offline.
+- Security requirements are implemented.
+- Real-device testing is completed.
+
+---
+
+# FINAL INSTRUCTION
+
+Build amaMomoApp as a complete, professional, reliable multi-network mobile money agent application.
+
+The interface should follow the overall MBanker structure and user experience while maintaining a distinct amaMomoApp brand.
+
+The transaction engine must be modular and configuration-driven.
+
+The seven-day trial must be automatic.
+
+Paystack must handle subscriptions.
+
+The application must support MTN, AT Money and Telecel with their correct transaction responsibilities.
+
+Most importantly, do not guess financial USSD instructions.
+
+Build the complete USSD engine first, populate it with verified provider prompts, test each flow on authorized agent SIMs and only then enable it for production.
+
+Do not stop at the UI. Deliver the integrated Android application, backend, database, subscription system and transaction workflows.

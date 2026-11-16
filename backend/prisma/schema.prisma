@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  AGENT
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum EntitlementStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum NetworkType {
+  MTN
+  AT
+  TELECEL
+}
+
+enum TransactionType {
+  CASH_IN
+  CASH_OUT
+  AIRTIME
+  DATA
+  MERCHANT_PAY
+  BALANCE
+  COMMISSION
+  CUSTOM_USSD
+}
+
+enum ProcessingType {
+  AUTOMATED_USSD
+  CUSTOMER_LED
+  MANUAL_USSD
+}
+
+enum TransactionStatus {
+  DRAFT
+  PROCESSING
+  AWAITING_CUSTOMER
+  AWAITING_VERIFICATION
+  SUCCESSFUL
+  FAILED
+  CANCELLED
+  UNKNOWN
+}
+
+model User {
+  id            String        @id @default(uuid())
+  fullName      String        @map("full_name")
+  email         String        @unique
+  phone         String        @unique
+  passwordHash  String        @map("password_hash")
+  role          UserRole      @default(AGENT)
+  accountStatus AccountStatus @default(ACTIVE) @map("account_status")
+  trialConsumed Boolean       @default(false) @map("trial_consumed")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  entitlement  SubscriptionEntitlement?
+  payments     Payment[]
+  transactions Transaction[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model SubscriptionPlan {
+  id              String          @id @default(uuid())
+  code            String          @unique
+  name            String
+  price           Decimal         @db.Decimal(12, 2)
+  currency        String          @default("GHS")
+  billingInterval BillingInterval @map("billing_interval")
+  durationDays    Int             @map("duration_days")
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  entitlements SubscriptionEntitlement[]
+  payments     Payment[]
+
+  @@map("subscription_plans")
+}
+
+model SubscriptionEntitlement {
+  id                  String            @id @default(uuid())
+  userId              String            @unique @map("user_id")
+  status              EntitlementStatus @default(TRIAL)
+  trialStartedAt      DateTime?         @map("trial_started_at")
+  trialExpiresAt      DateTime?         @map("trial_expires_at")
+  paidUntil           DateTime?         @map("paid_until")
+  currentPlanId       String?           @map("current_plan_id")
+  recurringAuthorized Boolean           @default(false) @map("recurring_authorized")
+  authorizationCode   String?           @map("authorization_code")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentPlan SubscriptionPlan? @relation(fields: [currentPlanId], references: [id])
+
+  @@index([status])
+  @@map("subscription_entitlements")
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  userId                String        @map("user_id")
+  planId                String        @map("plan_id")
+  provider              String        @default("PAYSTACK")
+  reference             String        @unique
+  amount                Decimal       @db.Decimal(12, 2)
+  currency              String        @default("GHS")
+  channel               String?
+  status                PaymentStatus @default(PENDING)
+  authorizationReusable Boolean       @default(false) @map("authorization_reusable")
+  paidAt                DateTime?     @map("paid_at")
+  rawMetadata           Json?         @map("raw_metadata")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([reference])
+  @@map("payments")
+}
+
+model Transaction {
+  id                  String            @id @default(uuid())
+  userId              String            @map("user_id")
+  clientTransactionId String            @map("client_transaction_id")
+  providerReference   String?           @map("provider_reference")
+  network             NetworkType
+  transactionType     TransactionType   @map("transaction_type")
+  processingType      ProcessingType    @map("processing_type")
+  recipientNumber     String            @map("recipient_number")
+  amount              Decimal           @db.Decimal(12, 2)
+  bundleId            String?           @map("bundle_id")
+  bundleName          String?           @map("bundle_name")
+  status              TransactionStatus
+  confirmationSource  String?           @map("confirmation_source")
+  providerResponse    String?           @map("provider_response")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bundle DataBundle?        @relation(fields: [bundleId], references: [id])
+  events TransactionEvent[]
+
+  @@unique([userId, clientTransactionId])
+  @@index([userId, createdAt])
+  @@index([userId, network, transactionType, status])
+  @@map("transactions")
+}
+
+model TransactionEvent {
+  id             String             @id @default(uuid())
+  transactionId  String             @map("transaction_id")
+  eventType      String             @map("event_type")
+  previousStatus TransactionStatus? @map("previous_status")
+  newStatus      TransactionStatus  @map("new_status")
+  details        String?
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId, createdAt])
+  @@map("transaction_events")
+}
+
+model UssdFlowProfile {
+  id              String      @id @default(uuid())
+  network         NetworkType
+  transactionType String      @map("transaction_type")
+  version         Int
+  configuration   Json
+  enabled         Boolean     @default(false)
+  lastVerifiedAt  DateTime?   @map("last_verified_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@unique([network, transactionType, version])
+  @@index([network, transactionType, enabled])
+  @@map("ussd_flow_profiles")
+}
+
+model NetworkProfile {
+  id            String      @id @default(uuid())
+  network       NetworkType @unique
+  configuration Json
+  version       Int         @default(1)
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@map("network_profiles")
+}
+
+model DataBundle {
+  id             String      @id @default(uuid())
+  network        NetworkType
+  name           String
+  allowance      String
+  price          Decimal     @db.Decimal(12, 2)
+  validity       String
+  providerOption String      @map("provider_option")
+  active         Boolean     @default(true)
+  lastVerifiedAt DateTime?   @map("last_verified_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  transactions Transaction[]
+
+  @@index([network, active])
+  @@map("data_bundles")
+}

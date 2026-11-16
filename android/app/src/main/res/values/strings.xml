@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">EasyMoMo</string>
+    <string name="accessibility_service_label">EasyMoMo USSD Assistant</string>
+    <string name="accessibility_service_description">Assists mobile money agents by reading USSD prompt dialogs and filling verified transaction fields during active agent-initiated sessions. Never stores or transmits PINs.</string>
+</resources>

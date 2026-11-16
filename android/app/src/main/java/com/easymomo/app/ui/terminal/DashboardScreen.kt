@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dialpad
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.People
@@ -335,7 +336,15 @@ fun DashboardScreen(
                         onData = { launchOrSelectNetwork(TransactionType.DATA) },
                         onAirtime = { launchOrSelectNetwork(TransactionType.AIRTIME) },
                         onOpenCustomUssd = onOpenCustomUssd,
-                        onOpenMerchant = onOpenMerchant,
+                        onOpenMerchant = {
+                            runWithCallPermission {
+                                terminalViewModel.prepareAndRunInlineUssd(
+                                    type = TransactionType.MERCHANT_PAY,
+                                    overrideNetwork = NetworkType.MTN,
+                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                )
+                            }
+                        },
                         onGig = { launchOrSelectNetwork(TransactionType.GIG) },
                         onOpenReports = onOpenReports,
                         onBalance = {
@@ -491,28 +500,38 @@ private fun DashboardTopBar(
                 )
             }
 
-            IconButton(
-                onClick = { showMenu = true },
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Menu,
-                    contentDescription = "Menu",
-                    tint = TextPrimary,
-                    modifier = Modifier.size(22.dp)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { onToggleDarkMode(!darkModeEnabled) },
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = if (darkModeEnabled) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                        contentDescription = if (darkModeEnabled) "Switch to light mode" else "Switch to dark mode",
+                        tint = if (darkModeEnabled) EmeraldPrimary else TextPrimary,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Menu,
+                        contentDescription = "Menu",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
     }
 
     if (showMenu) {
         DashboardMenuSheet(
-            darkModeEnabled = darkModeEnabled,
-            onToggleDarkMode = onToggleDarkMode,
             onDismiss = { showMenu = false },
             onOpenHistory = { showMenu = false; onOpenHistory() },
             onOpenCustomers = { showMenu = false; onOpenCustomers() },
-            onOpenMerchant = { showMenu = false; onOpenMerchant() },
             onOpenReports = { showMenu = false; onOpenReports() },
             onOpenHelp = { showMenu = false; onOpenHelp() },
             onOpenSimAndDiagnostics = { showMenu = false; onOpenSimAndDiagnostics() },
@@ -527,12 +546,9 @@ private fun DashboardTopBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardMenuSheet(
-    darkModeEnabled: Boolean,
-    onToggleDarkMode: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenCustomers: () -> Unit,
-    onOpenMerchant: () -> Unit,
     onOpenReports: () -> Unit,
     onOpenHelp: () -> Unit,
     onOpenSimAndDiagnostics: () -> Unit,
@@ -625,13 +641,6 @@ private fun DashboardMenuSheet(
                     )
                     HorizontalDivider(color = TerminalBorder)
                     DashboardMenuItemRow(
-                        icon = Icons.Outlined.Storefront,
-                        title = "Pay to Merchant",
-                        subtitle = "Send payment to merchant ID",
-                        onClick = onOpenMerchant
-                    )
-                    HorizontalDivider(color = TerminalBorder)
-                    DashboardMenuItemRow(
                         icon = Icons.Outlined.Assessment,
                         title = "Reports & Float",
                         subtitle = "Daily totals & CSV exports",
@@ -689,51 +698,6 @@ private fun DashboardMenuSheet(
                 border = sectionBorderStroke
             ) {
                 Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggleDarkMode(!darkModeEnabled) }
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedShape10)
-                                .background(EmeraldPrimary.copy(alpha = 0.1f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.DarkMode,
-                                contentDescription = null,
-                                tint = EmeraldPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Dark Mode",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = if (darkModeEnabled) "Dark terminal theme enabled" else "Light terminal theme enabled",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Switch(
-                            checked = darkModeEnabled,
-                            onCheckedChange = onToggleDarkMode,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = EmeraldPrimary
-                            )
-                        )
-                    }
-                    HorizontalDivider(color = TerminalBorder)
                     DashboardMenuItemRow(
                         icon = Icons.Outlined.Share,
                         title = "Share EasyMoMo",

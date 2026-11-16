@@ -257,6 +257,7 @@ class UssdFlowController(
             ResponseType.TRANSACTION_CUSTOMER_PHONE,
             ResponseType.TRANSACTION_AMOUNT -> StepAction.SEND_VARIABLE
             ResponseType.MANUAL_OPERATIONAL_ID -> StepAction.PAUSE_FOR_OPERATIONAL_ID
+            ResponseType.MANUAL_REFERENCE -> StepAction.PAUSE_FOR_REFERENCE
             ResponseType.MANUAL_SENSITIVE_INPUT -> StepAction.PAUSE_FOR_PIN
             ResponseType.WAIT_FOR_PROMPT -> StepAction.WAIT_FOR_PROMPT
             ResponseType.TERMINAL_RESULT -> StepAction.COMPLETE
@@ -301,6 +302,17 @@ class UssdFlowController(
                 UssdDiagnosticLog.log("STATE", "Paused for manual Telecel operational ID at step ${step.id}")
                 sessionManager.updateState(
                     UssdSessionState.PausedForOperationalId(sessionId, step.id, observedRaw)
+                )
+            }
+            StepAction.PAUSE_FOR_REFERENCE -> {
+                UssdDiagnosticLog.log("STATE", "Paused for manual reference at step ${step.id}")
+                sessionManager.updateState(
+                    UssdSessionState.PausedForOperationalId(
+                        sessionId = sessionId,
+                        stepId = step.id,
+                        observedPrompt = observedRaw,
+                        instruction = "Please enter the payment reference in the USSD window."
+                    )
                 )
             }
             StepAction.PAUSE_FOR_PIN -> {

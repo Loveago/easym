@@ -261,43 +261,39 @@ class TerminalViewModel(
                             OutcomeCategory.TIMEOUT,
                             OutcomeCategory.UNEXPECTED -> TransactionStatus.UNKNOWN
                         }
-                        val updated = txRepo.transitionStatus(
-                            localId = activeId,
-                            newStatus = targetStatus,
-                            providerReference = state.outcome.providerReference,
-                            confirmationSource = "AGENT_USSD",
-                            providerResponse = state.outcome.message
-                        )
-                        _uiState.update { it.copy(activeTransaction = updated) }
+                        if (targetStatus != TransactionStatus.UNKNOWN) {
+                            val updated = txRepo.transitionStatus(
+                                localId = activeId,
+                                newStatus = targetStatus,
+                                providerReference = state.outcome.providerReference,
+                                confirmationSource = "AGENT_USSD",
+                                providerResponse = state.outcome.message
+                            )
+                            _uiState.update { it.copy(activeTransaction = updated) }
+                        }
                     }
                     is UssdSessionState.Cancelled -> {
                         timeoutJob?.cancel()
-                        val target = if (sessionManager.hasSentFinancialInput()) {
-                            TransactionStatus.UNKNOWN
-                        } else {
-                            TransactionStatus.CANCELLED
+                        if (!sessionManager.hasSentFinancialInput()) {
+                            val updated = txRepo.transitionStatus(
+                                localId = activeId,
+                                newStatus = TransactionStatus.CANCELLED,
+                                confirmationSource = "USER_CANCELLED",
+                                providerResponse = state.reason
+                            )
+                            _uiState.update { it.copy(activeTransaction = updated) }
                         }
-                        val updated = txRepo.transitionStatus(
-                            localId = activeId,
-                            newStatus = target,
-                            confirmationSource = "USER_CANCELLED",
-                            providerResponse = state.reason
-                        )
-                        _uiState.update { it.copy(activeTransaction = updated) }
                     }
                     is UssdSessionState.TimedOut -> {
-                        val target = if (sessionManager.hasSentFinancialInput()) {
-                            TransactionStatus.UNKNOWN
-                        } else {
-                            TransactionStatus.FAILED
+                        if (!sessionManager.hasSentFinancialInput()) {
+                            val updated = txRepo.transitionStatus(
+                                localId = activeId,
+                                newStatus = TransactionStatus.FAILED,
+                                confirmationSource = "TIMEOUT",
+                                providerResponse = "Session timed out at step ${state.lastStepId}"
+                            )
+                            _uiState.update { it.copy(activeTransaction = updated) }
                         }
-                        val updated = txRepo.transitionStatus(
-                            localId = activeId,
-                            newStatus = target,
-                            confirmationSource = "TIMEOUT",
-                            providerResponse = "Session timed out at step ${state.lastStepId}"
-                        )
-                        _uiState.update { it.copy(activeTransaction = updated) }
                     }
                     else -> Unit
                 }
@@ -551,6 +547,14 @@ class TerminalViewModel(
             }
         }
 
+        val effectiveMerchantCode = merchantCode.trim().ifBlank { state.phoneText.trim() }
+        if (type == TransactionType.MERCHANT_PAY && effectiveMerchantCode.isBlank()) {
+            _uiState.update {
+                it.copy(validationError = "Enter the merchant number in the Phone Number field and an amount.")
+            }
+            return
+        }
+
         val amountValue = when (type) {
             TransactionType.DATA -> {
                 if (bundle != null) {
@@ -608,7 +612,7 @@ class TerminalViewModel(
                     activeDraft = draft,
                     activeTransaction = draft,
                     selectedBundle = bundle,
-                    merchantCode = merchantCode,
+                    merchantCode = effectiveMerchantCode,
                     customUssdCode = customUssdCode
                 )
             }
@@ -701,6 +705,14 @@ class TerminalViewModel(
                 )
                 return@launch
             }
+
+            val defaultSuccessTx = txRepo.transitionStatus(
+                localId = txLocalId,
+                newStatus = TransactionStatus.SUCCESSFUL,
+                confirmationSource = "DEFAULT_SUCCESS",
+                details = "Marked successful by default; agent can mark failed/cancelled manually"
+            )
+            _uiState.update { it.copy(activeTransaction = defaultSuccessTx) }
 
             timeoutJob?.cancel()
             timeoutJob = viewModelScope.launch {

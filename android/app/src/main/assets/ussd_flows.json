@@ -317,6 +317,28 @@
       ]
     },
     {
+      "flow_id": "MTN_MERCHANT_PAY",
+      "network": "MTN",
+      "transaction_type": "MERCHANT_PAY",
+      "version": 10,
+      "entry_code": "*171#",
+      "timeout_seconds": 90,
+      "enabled": true,
+      "verified_with_sim": true,
+      "status": "SUPPLIED_SEQUENCE",
+      "steps": [
+        { "id": "START", "type": "INITIATE_USSD", "next": "SELECT_PAY_TO" },
+        { "id": "SELECT_PAY_TO", "type": "MATCH_PROMPT", "expected_prompts": ["pay to", "payment", "allow cash out", "1.", "1)"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "SELECT_MERCHANT" },
+        { "id": "SELECT_MERCHANT", "type": "MATCH_PROMPT", "expected_prompts": ["merchant", "2.", "2)"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "2", "next": "ENTER_MERCHANT_NUMBER" },
+        { "id": "ENTER_MERCHANT_NUMBER", "type": "MATCH_PROMPT", "expected_prompts": ["merchant", "number", "id", "code"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "variable": "merchant_code", "next": "CONFIRM_MERCHANT_NUMBER" },
+        { "id": "CONFIRM_MERCHANT_NUMBER", "type": "MATCH_PROMPT", "expected_prompts": ["re-enter", "reenter", "repeat", "confirm", "again", "merchant", "number"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "variable": "merchant_code", "next": "ENTER_AMOUNT" },
+        { "id": "ENTER_AMOUNT", "type": "MATCH_PROMPT", "expected_prompts": ["amount", "ghs"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_AMOUNT", "variable": "amount", "next": "ENTER_REFERENCE" },
+        { "id": "ENTER_REFERENCE", "type": "MATCH_PROMPT", "expected_prompts": ["reference", "ref", "reason", "description"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_REFERENCE", "response_type": "MANUAL_REFERENCE", "next": "AUTHORIZE_PIN" },
+        { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "momo pin", "secret code", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "response_type": "MANUAL_SENSITIVE_INPUT", "next": "FINAL_RESULT" },
+        { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "response_type": "TERMINAL_RESULT", "success_prompts": ["success", "completed", "confirmed", "paid"], "failure_prompts": ["failed", "invalid", "insufficient", "cancelled"] }
+      ]
+    },
+    {
       "flow_id": "AT_BALANCE",
       "network": "AT",
       "transaction_type": "BALANCE",

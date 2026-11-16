@@ -11,6 +11,7 @@ import com.easymomo.app.data.repository.ReportAggregator
 import com.easymomo.app.data.repository.ReportExporter
 import com.easymomo.app.data.repository.ReportSummary
 import com.easymomo.app.data.repository.TransactionRepository
+import com.easymomo.app.domain.model.TransactionStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,6 +95,18 @@ class HistoryReportsViewModel(
 
     fun clearSyncMessage() {
         _syncMessage.value = null
+    }
+
+    fun markTransactionStatus(localId: String, status: TransactionStatus) {
+        viewModelScope.launch {
+            txRepo.transitionStatus(
+                localId = localId,
+                newStatus = status,
+                confirmationSource = "MANUAL_AGENT_OVERRIDE",
+                details = "Manually marked ${status.name.lowercase()} by agent",
+                isExplicitAgentVerification = true
+            )
+        }
     }
 
     suspend fun exportCurrentPeriodCsv(context: Context): Uri {

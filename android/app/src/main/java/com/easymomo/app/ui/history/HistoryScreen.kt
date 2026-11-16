@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -25,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -37,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.easymomo.app.data.local.TransactionEntity
@@ -195,6 +199,54 @@ fun HistoryScreen(
                 Text("Method: ${tx.processingMethod}", style = MaterialTheme.typography.bodyMedium)
                 tx.providerResponse?.let {
                     Text("Provider Response: $it", style = MaterialTheme.typography.bodyMedium)
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                Text("Update Status", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (tx.status != TransactionStatus.FAILED.name) {
+                        Button(
+                            onClick = {
+                                viewModel.markTransactionStatus(tx.localId, TransactionStatus.FAILED)
+                                selectedTx = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFDC2626),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Mark Failed", maxLines = 1)
+                        }
+                    }
+                    if (tx.status != TransactionStatus.CANCELLED.name) {
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.markTransactionStatus(tx.localId, TransactionStatus.CANCELLED)
+                                selectedTx = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Mark Cancelled", maxLines = 1)
+                        }
+                    }
+                    if (tx.status != TransactionStatus.SUCCESSFUL.name) {
+                        Button(
+                            onClick = {
+                                viewModel.markTransactionStatus(tx.localId, TransactionStatus.SUCCESSFUL)
+                                selectedTx = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EmeraldPrimary,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Mark Successful", maxLines = 1)
+                        }
+                    }
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                 Text("Events", style = MaterialTheme.typography.titleMedium)

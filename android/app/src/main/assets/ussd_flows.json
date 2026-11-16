@@ -127,7 +127,7 @@
       "flow_id": "MTN_BALANCE",
       "network": "MTN",
       "transaction_type": "BALANCE",
-      "version": 2,
+      "version": 3,
       "entry_code": "*171#",
       "timeout_seconds": 60,
       "enabled": true,
@@ -136,8 +136,25 @@
         { "id": "START", "type": "INITIATE_USSD", "next": "MAIN_MENU" },
         { "id": "MAIN_MENU", "type": "MATCH_PROMPT", "expected_prompts": ["my wallet", "wallet", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "menu_option": "7", "next": "SELECT_BALANCE" },
         { "id": "SELECT_BALANCE", "type": "MATCH_PROMPT", "expected_prompts": ["balance", "check balance", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "menu_option": "1", "next": "AUTHORIZE_PIN" },
-        { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "momo pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "next": "FINAL_RESULT" },
+        { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "momo pin", "secret code", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "next": "FINAL_RESULT" },
         { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "success_prompts": ["balance", "ghs", "available"], "failure_prompts": ["failed", "invalid"] }
+      ]
+    },
+    {
+      "flow_id": "MTN_COMMISSION",
+      "network": "MTN",
+      "transaction_type": "COMMISSION",
+      "version": 2,
+      "entry_code": "*171#",
+      "timeout_seconds": 60,
+      "enabled": true,
+      "verified_with_sim": true,
+      "steps": [
+        { "id": "START", "type": "INITIATE_USSD", "next": "MAIN_MENU" },
+        { "id": "MAIN_MENU", "type": "MATCH_PROMPT", "expected_prompts": ["my wallet", "wallet", "7.", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "menu_option": "7", "next": "SELECT_COMMISSION" },
+        { "id": "SELECT_COMMISSION", "type": "MATCH_PROMPT", "expected_prompts": ["commission", "2.", "2)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "menu_option": "2", "next": "AUTHORIZE_PIN" },
+        { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "momo pin", "secret code", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "next": "FINAL_RESULT" },
+        { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "success_prompts": ["commission", "ghs", "balance", "available"], "failure_prompts": ["failed", "invalid"] }
       ]
     },
     {

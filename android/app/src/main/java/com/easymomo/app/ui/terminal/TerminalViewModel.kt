@@ -242,13 +242,12 @@ class TerminalViewModel(
                 when (state) {
                     is UssdSessionState.WaitingForCustomerApproval -> {
                         timeoutJob?.cancel()
-                        val updated = txRepo.transitionStatus(
+                        txRepo.transitionStatusSafely(
                             localId = activeId,
                             newStatus = TransactionStatus.AWAITING_VERIFICATION,
                             confirmationSource = "CUSTOMER_APPROVAL_PENDING",
                             providerResponse = state.observedPrompt
-                        )
-                        _uiState.update { it.copy(activeTransaction = updated) }
+                        )?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
                     }
                     is UssdSessionState.Completed -> {
                         timeoutJob?.cancel()
@@ -262,37 +261,34 @@ class TerminalViewModel(
                             OutcomeCategory.UNEXPECTED -> TransactionStatus.UNKNOWN
                         }
                         if (targetStatus != TransactionStatus.UNKNOWN) {
-                            val updated = txRepo.transitionStatus(
+                            txRepo.transitionStatusSafely(
                                 localId = activeId,
                                 newStatus = targetStatus,
                                 providerReference = state.outcome.providerReference,
                                 confirmationSource = "AGENT_USSD",
                                 providerResponse = state.outcome.message
-                            )
-                            _uiState.update { it.copy(activeTransaction = updated) }
+                            )?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
                         }
                     }
                     is UssdSessionState.Cancelled -> {
                         timeoutJob?.cancel()
                         if (!sessionManager.hasSentFinancialInput()) {
-                            val updated = txRepo.transitionStatus(
+                            txRepo.transitionStatusSafely(
                                 localId = activeId,
                                 newStatus = TransactionStatus.CANCELLED,
                                 confirmationSource = "USER_CANCELLED",
                                 providerResponse = state.reason
-                            )
-                            _uiState.update { it.copy(activeTransaction = updated) }
+                            )?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
                         }
                     }
                     is UssdSessionState.TimedOut -> {
                         if (!sessionManager.hasSentFinancialInput()) {
-                            val updated = txRepo.transitionStatus(
+                            txRepo.transitionStatusSafely(
                                 localId = activeId,
                                 newStatus = TransactionStatus.FAILED,
                                 confirmationSource = "TIMEOUT",
                                 providerResponse = "Session timed out at step ${state.lastStepId}"
-                            )
-                            _uiState.update { it.copy(activeTransaction = updated) }
+                            )?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
                         }
                     }
                     else -> Unit
@@ -521,7 +517,14 @@ class TerminalViewModel(
         if (sessionManager.getActiveSessionId() != null || state.inlineUssdVisible) {
             return
         }
-        val network = overrideNetwork ?: state.detectedNetwork
+        val rawNetwork = overrideNetwork ?: state.detectedNetwork
+        val network = if (rawNetwork == NetworkType.UNKNOWN &&
+            (type == TransactionType.BALANCE || type == TransactionType.COMMISSION || type == TransactionType.STATEMENT)
+        ) {
+            NetworkType.MTN
+        } else {
+            rawNetwork
+        }
 
         // Validate network & inputs depending on transaction type
         val requiresPhone = when {
@@ -569,7 +572,8 @@ class TerminalViewModel(
                     }
                 }
             }
-            TransactionType.GIG, TransactionType.BALANCE, TransactionType.STATEMENT, TransactionType.COMMISSION, TransactionType.CUSTOM_USSD ->
+            TransactionType.BALANCE, TransactionType.STATEMENT, TransactionType.COMMISSION -> 0.0
+            TransactionType.GIG, TransactionType.CUSTOM_USSD ->
                 state.amountText.toDoubleOrNull() ?: 0.0
             else -> {
                 when (val amtCheck = inputHandler.formatAmount(state.amountText)) {
@@ -591,7 +595,12 @@ class TerminalViewModel(
             else -> ProcessingMethod.AGENT_USSD
         }
 
-        val normalizedPhone = if (state.phoneText.isNotBlank()) {
+        val isSelfEnquiry = type == TransactionType.BALANCE ||
+            type == TransactionType.COMMISSION ||
+            type == TransactionType.STATEMENT
+        val normalizedPhone = if (isSelfEnquiry) {
+            "SELF"
+        } else if (state.phoneText.isNotBlank()) {
             NetworkPrefixDetector.normalizeGhanaPhone(state.phoneText)
         } else {
             merchantCode.ifBlank { "SELF" }
@@ -659,23 +668,42 @@ class TerminalViewModel(
                 return@launch
             }
 
-            val vars = UssdInputHandler.TransactionVariables(
-                customerPhone = tx.recipientNumber,
-                recipientPhone = tx.recipientNumber,
-                amount = tx.amount.toString(),
-                bundleCode = tx.bundleId.orEmpty(),
-                bundlePrice = tx.amount.toString(),
-                network = networkType,
-                merchantCode = _uiState.value.merchantCode,
-                customUssdCode = _uiState.value.customUssdCode,
-                reference = if (flowId == "MTN_CASH_IN" || flowId == "MTN_CASH_OUT") {
-                    ""
-                } else {
-                    "AMA${tx.localId.take(6).uppercase()}"
-                },
-                operationalId = "",
-                isPortedNumber = _uiState.value.isPorted
-            )
+            val isSelfEnquiry = txType == TransactionType.BALANCE ||
+                txType == TransactionType.COMMISSION ||
+                txType == TransactionType.STATEMENT
+            val vars = if (isSelfEnquiry) {
+                UssdInputHandler.TransactionVariables(
+                    customerPhone = "",
+                    recipientPhone = "",
+                    amount = "",
+                    bundleCode = "",
+                    bundlePrice = "",
+                    network = networkType,
+                    merchantCode = "",
+                    customUssdCode = _uiState.value.customUssdCode,
+                    reference = "",
+                    operationalId = "",
+                    isPortedNumber = false
+                )
+            } else {
+                UssdInputHandler.TransactionVariables(
+                    customerPhone = tx.recipientNumber,
+                    recipientPhone = tx.recipientNumber,
+                    amount = tx.amount.toString(),
+                    bundleCode = tx.bundleId.orEmpty(),
+                    bundlePrice = tx.amount.toString(),
+                    network = networkType,
+                    merchantCode = _uiState.value.merchantCode,
+                    customUssdCode = _uiState.value.customUssdCode,
+                    reference = if (flowId == "MTN_CASH_IN" || flowId == "MTN_CASH_OUT") {
+                        ""
+                    } else {
+                        "AMA${tx.localId.take(6).uppercase()}"
+                    },
+                    operationalId = "",
+                    isPortedNumber = _uiState.value.isPorted
+                )
+            }
 
             val startResult = flowController.startFlow(txLocalId, profile, vars)
             if (startResult.isFailure) return@launch
@@ -690,12 +718,12 @@ class TerminalViewModel(
                 }
             )
             if (launchResult is UssdLaunchResult.Error) {
-                txRepo.transitionStatus(
+                txRepo.transitionStatusSafely(
                     localId = txLocalId,
                     newStatus = TransactionStatus.FAILED,
                     confirmationSource = "LAUNCHER_ERROR",
                     providerResponse = launchResult.message
-                )
+                )?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
                 sessionManager.endSession(
                     UssdSessionState.ManualInterventionRequired(
                         sessionId = txLocalId,
@@ -706,13 +734,15 @@ class TerminalViewModel(
                 return@launch
             }
 
-            val defaultSuccessTx = txRepo.transitionStatus(
+            val defaultSuccessTx = txRepo.transitionStatusSafely(
                 localId = txLocalId,
                 newStatus = TransactionStatus.SUCCESSFUL,
                 confirmationSource = "DEFAULT_SUCCESS",
                 details = "Marked successful by default; agent can mark failed/cancelled manually"
             )
-            _uiState.update { it.copy(activeTransaction = defaultSuccessTx) }
+            if (defaultSuccessTx != null) {
+                _uiState.update { it.copy(activeTransaction = defaultSuccessTx) }
+            }
 
             timeoutJob?.cancel()
             timeoutJob = viewModelScope.launch {
@@ -726,7 +756,24 @@ class TerminalViewModel(
 
     fun cancelUssdSession() {
         timeoutJob?.cancel()
-        flowController.cancelSession()
+        if (sessionManager.getActiveSessionId() != null) {
+            flowController.cancelSession()
+        } else {
+            // System USSD dialog may have already ended the session before user tapped Cancel in-app
+            val activeId = _uiState.value.activeTransaction?.localId
+            if (activeId != null && !sessionManager.hasSentFinancialInput()) {
+                viewModelScope.launch {
+                    txRepo.transitionStatusSafely(
+                        localId = activeId,
+                        newStatus = TransactionStatus.CANCELLED,
+                        confirmationSource = "USER_CANCELLED",
+                        providerResponse = "Cancelled in app after system USSD dismissal"
+                    )?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
+                }
+            }
+            sessionManager.resetToIdle()
+        }
+        _uiState.update { it.copy(inlineUssdVisible = false) }
     }
 
     fun resetUssdSession() {
@@ -741,7 +788,7 @@ class TerminalViewModel(
         notes: String?
     ) {
         viewModelScope.launch {
-            val updated = txRepo.transitionStatus(
+            val updated = txRepo.transitionStatusSafely(
                 localId = txLocalId,
                 newStatus = status,
                 providerReference = providerReference?.takeIf { it.isNotBlank() },
@@ -749,7 +796,9 @@ class TerminalViewModel(
                 providerResponse = notes?.takeIf { it.isNotBlank() } ?: "Verified by agent",
                 isExplicitAgentVerification = true
             )
-            _uiState.update { it.copy(activeTransaction = updated) }
+            if (updated != null) {
+                _uiState.update { it.copy(activeTransaction = updated) }
+            }
             sessionManager.resetToIdle()
         }
     }

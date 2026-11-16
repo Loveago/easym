@@ -187,6 +187,9 @@ class TransactionRepository(
         val existing = transactionDao.getByLocalId(localId)
             ?: throw IllegalArgumentException("Transaction $localId not found")
         val currentStatus = TransactionStatus.fromCode(existing.status)
+        if (currentStatus == newStatus) {
+            return existing
+        }
 
         TransactionLifecycleManager.requireValidTransition(
             from = currentStatus,
@@ -216,6 +219,34 @@ class TransactionRepository(
         )
         enqueueForSync(updated)
         return updated
+    }
+
+    suspend fun transitionStatusSafely(
+        localId: String,
+        newStatus: TransactionStatus,
+        providerReference: String? = null,
+        confirmationSource: String? = null,
+        providerResponse: String? = null,
+        details: String? = null,
+        isExplicitAgentVerification: Boolean = false
+    ): TransactionEntity? {
+        val existing = transactionDao.getByLocalId(localId) ?: return null
+        val currentStatus = TransactionStatus.fromCode(existing.status)
+        if (currentStatus == newStatus) return existing
+        if (!TransactionLifecycleManager.canTransition(currentStatus, newStatus, isExplicitAgentVerification)) {
+            return existing
+        }
+        return runCatching {
+            transitionStatus(
+                localId = localId,
+                newStatus = newStatus,
+                providerReference = providerReference,
+                confirmationSource = confirmationSource,
+                providerResponse = providerResponse,
+                details = details,
+                isExplicitAgentVerification = isExplicitAgentVerification
+            )
+        }.getOrDefault(existing)
     }
 
     private fun toSyncDto(tx: TransactionEntity): SyncTransactionItemDto {

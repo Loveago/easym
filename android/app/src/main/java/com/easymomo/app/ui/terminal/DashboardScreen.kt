@@ -346,16 +346,19 @@ fun DashboardScreen(
                             }
                         },
                         onGig = { launchOrSelectNetwork(TransactionType.GIG) },
-                        onOpenReports = onOpenReports,
+                        onCommission = {
+                            runWithCallPermission {
+                                terminalViewModel.prepareAndRunInlineUssd(
+                                    type = TransactionType.COMMISSION,
+                                    overrideNetwork = NetworkType.MTN,
+                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                )
+                            }
+                        },
                         onBalance = {
                             val mode = uiState.agentSettings.defaultNetworkMode
                             val fixedNet = if (mode != "ASK") NetworkType.fromCode(mode) else NetworkType.UNKNOWN
-                            val currentDetected = terminalViewModel.uiState.value.detectedNetwork
-                            val net = when {
-                                fixedNet != NetworkType.UNKNOWN -> fixedNet
-                                currentDetected != NetworkType.UNKNOWN -> currentDetected
-                                else -> NetworkType.MTN
-                            }
+                            val net = if (fixedNet != NetworkType.UNKNOWN) fixedNet else NetworkType.MTN
                             runWithCallPermission {
                                 terminalViewModel.prepareAndRunInlineUssd(
                                     type = TransactionType.BALANCE,
@@ -1148,7 +1151,7 @@ private fun DashboardActionGrid(
     onOpenCustomUssd: () -> Unit,
     onOpenMerchant: () -> Unit,
     onGig: () -> Unit,
-    onOpenReports: () -> Unit,
+    onCommission: () -> Unit,
     onBalance: () -> Unit
 ) {
     Row(
@@ -1220,7 +1223,7 @@ private fun DashboardActionGrid(
             label = "COMMISSION",
             icon = Icons.Outlined.Payments,
             containerColor = AmberAccent,
-            onClick = onOpenReports,
+            onClick = onCommission,
             modifier = Modifier.weight(1f)
         )
         TerminalActionButton(

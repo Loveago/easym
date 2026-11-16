@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -239,4 +240,15 @@ model DataBundle {
 
   @@index([network, active])
   @@map("data_bundles")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  isSecret    Boolean  @default(false) @map("is_secret")
+  description String   @default("")
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
 }

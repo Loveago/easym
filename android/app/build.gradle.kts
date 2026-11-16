@@ -19,7 +19,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Backend API base URL (overridable via gradle.properties or BuildConfig)
-        buildConfigField("String", "API_BASE_URL", "\"https://api.easymomo.app/api/\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://backend-omega-blue-30.vercel.app/api/\"")
     }
 
     buildTypes {

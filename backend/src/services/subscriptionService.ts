@@ -8,6 +8,7 @@ import {
   paystackGateway as defaultGateway,
   verifyPaystackSignature,
 } from './paystackService';
+import { getEffectivePaystackConfig } from './settingsService';
 import { computeEntitlementSummary } from './trialService';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -62,12 +63,13 @@ export async function initializeSubscriptionPayment(
     },
   });
 
+  const { callbackUrl } = await getEffectivePaystackConfig(db);
   const paystackInit = await gateway.initializeTransaction({
     email: user.email,
     amountPesewas,
     currency: plan.currency,
     reference,
-    callbackUrl: env.PAYSTACK_CALLBACK_URL,
+    callbackUrl,
     metadata: {
       userId: user.id,
       planId: plan.id,
@@ -243,7 +245,8 @@ export async function handlePaystackWebhook(
   db: PrismaClient = defaultPrisma,
   gateway: PaystackGateway = defaultGateway,
 ) {
-  if (!verifyPaystackSignature(rawBody, signature)) {
+  const { secretKey } = await getEffectivePaystackConfig(db);
+  if (!verifyPaystackSignature(rawBody, signature, secretKey)) {
     throw new AppError(401, 'INVALID_WEBHOOK_SIGNATURE', 'Invalid Paystack webhook signature');
   }
 

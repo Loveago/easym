@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { env } from '../config/env';
 import { AppError } from '../middleware/errorHandler';
+import { getEffectivePaystackConfig } from './settingsService';
 
 export interface PaystackInitializeInput {
   email: string;
@@ -51,10 +52,11 @@ export function verifyPaystackSignature(
 
 export const paystackGateway: PaystackGateway = {
   async initializeTransaction(input: PaystackInitializeInput): Promise<PaystackInitializeResult> {
+    const { secretKey } = await getEffectivePaystackConfig();
     const response = await fetch(`${env.PAYSTACK_BASE_URL}/transaction/initialize`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+        Authorization: `Bearer ${secretKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -89,12 +91,13 @@ export const paystackGateway: PaystackGateway = {
   },
 
   async verifyTransaction(reference: string): Promise<PaystackVerifyResult> {
+    const { secretKey } = await getEffectivePaystackConfig();
     const response = await fetch(
       `${env.PAYSTACK_BASE_URL}/transaction/verify/${encodeURIComponent(reference)}`,
       {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+          Authorization: `Bearer ${secretKey}`,
         },
       },
     );

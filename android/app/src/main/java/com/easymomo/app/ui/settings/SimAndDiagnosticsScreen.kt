@@ -403,17 +403,64 @@ fun SimAndDiagnosticsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = TerminalBorder)
 
-                Text(
-                    "Telecel Operational ID",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = EmeraldPrimary,
-                    fontWeight = FontWeight.SemiBold
+                SettingToggleRow(
+                    title = "Auto-Enter Telecel Operational ID",
+                    subtitle = if (settings.autoEnterTelecelOperationalId) {
+                        "Automatically enters your saved Operational ID during Telecel transactions."
+                    } else {
+                        "Off by default. Agents enter the Telecel Operational ID manually in the USSD prompt."
+                    },
+                    checked = settings.autoEnterTelecelOperationalId,
+                    onCheckedChange = terminalViewModel::setAutoEnterTelecelOperationalId
                 )
-                Text(
-                    "Telecel Operational ID is entered manually in the USSD prompt during each Telecel transaction (alongside your PIN).",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary
-                )
+
+                if (settings.autoEnterTelecelOperationalId) {
+                    var opIdDraft by remember(uiState.telecelOperationalId) {
+                        mutableStateOf(uiState.telecelOperationalId)
+                    }
+                    var opIdSavedHint by remember { mutableStateOf(false) }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = opIdDraft,
+                            onValueChange = {
+                                opIdDraft = it
+                                opIdSavedHint = false
+                            },
+                            label = { Text("Saved Telecel Operational ID") },
+                            placeholder = { Text("e.g. 123456") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                terminalViewModel.saveTelecelOperationalId(opIdDraft)
+                                opIdSavedHint = true
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EmeraldPrimary,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = when {
+                            opIdSavedHint -> "Saved! Operational ID will be entered automatically."
+                            uiState.telecelOperationalId.isBlank() -> "Enter and save your Operational ID above; otherwise EasyMoMo will pause for manual entry."
+                            else -> "Active Operational ID: ${uiState.telecelOperationalId}"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (opIdSavedHint) StatusSuccess else TextSecondary
+                    )
+                }
             }
 
             // 1c. Customer Cloud Sync

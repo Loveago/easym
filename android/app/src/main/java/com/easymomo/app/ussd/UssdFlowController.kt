@@ -299,6 +299,18 @@ class UssdFlowController(
                 )
             }
             StepAction.PAUSE_FOR_OPERATIONAL_ID -> {
+                if (vars.operationalId.isNotBlank()) {
+                    when (val resolved = inputHandler.resolveVariable("operational_id", vars)) {
+                        is UssdInputHandler.ValidationResult.Valid -> {
+                            UssdDiagnosticLog.log("STATE", "Auto-entering saved Telecel operational ID at step ${step.id}")
+                            sendAndAdvance(sessionId, profile, step, resolved.value, isFinancialInput = false, observedRaw = observedRaw)
+                            return
+                        }
+                        is UssdInputHandler.ValidationResult.Invalid -> {
+                            UssdDiagnosticLog.log("STATE", "Saved Telecel operational ID invalid (${resolved.reason}); pausing for manual entry")
+                        }
+                    }
+                }
                 UssdDiagnosticLog.log("STATE", "Paused for manual Telecel operational ID at step ${step.id}")
                 sessionManager.updateState(
                     UssdSessionState.PausedForOperationalId(sessionId, step.id, observedRaw)

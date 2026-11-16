@@ -230,6 +230,12 @@ class TerminalViewModel(
         }
     }
 
+    fun setAutoEnterTelecelOperationalId(enabled: Boolean) {
+        viewModelScope.launch {
+            simManager.updateAgentSettings { it.copy(autoEnterTelecelOperationalId = enabled) }
+        }
+    }
+
     private fun observeUssdPrompts() {
         viewModelScope.launch(Dispatchers.Default) {
             UssdPromptObserver.prompts.collect { observed ->
@@ -682,7 +688,11 @@ class TerminalViewModel(
                     merchantCode = "",
                     customUssdCode = _uiState.value.customUssdCode,
                     reference = "",
-                    operationalId = "",
+                    operationalId = if (_uiState.value.agentSettings.autoEnterTelecelOperationalId) {
+                        _uiState.value.telecelOperationalId.trim()
+                    } else {
+                        ""
+                    },
                     isPortedNumber = false
                 )
             } else {
@@ -700,7 +710,11 @@ class TerminalViewModel(
                     } else {
                         "AMA${tx.localId.take(6).uppercase()}"
                     },
-                    operationalId = "",
+                    operationalId = if (_uiState.value.agentSettings.autoEnterTelecelOperationalId) {
+                        _uiState.value.telecelOperationalId.trim()
+                    } else {
+                        ""
+                    },
                     isPortedNumber = _uiState.value.isPorted
                 )
             }

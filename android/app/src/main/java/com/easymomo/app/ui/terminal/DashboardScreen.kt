@@ -335,6 +335,24 @@ fun DashboardScreen(
                         },
                         onData = { launchOrSelectNetwork(TransactionType.DATA) },
                         onAirtime = { launchOrSelectNetwork(TransactionType.AIRTIME) },
+                        onEvdBundle = {
+                            runWithCallPermission {
+                                terminalViewModel.prepareAndRunInlineUssd(
+                                    type = TransactionType.EVD_BUNDLE,
+                                    overrideNetwork = NetworkType.MTN,
+                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                )
+                            }
+                        },
+                        onEvdAirtime = {
+                            runWithCallPermission {
+                                terminalViewModel.prepareAndRunInlineUssd(
+                                    type = TransactionType.EVD_AIRTIME,
+                                    overrideNetwork = NetworkType.MTN,
+                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                )
+                            }
+                        },
                         onOpenCustomUssd = onOpenCustomUssd,
                         onOpenMerchant = {
                             runWithCallPermission {
@@ -1148,6 +1166,8 @@ private fun DashboardActionGrid(
     onCashOut: () -> Unit,
     onData: () -> Unit,
     onAirtime: () -> Unit,
+    onEvdBundle: () -> Unit,
+    onEvdAirtime: () -> Unit,
     onOpenCustomUssd: () -> Unit,
     onOpenMerchant: () -> Unit,
     onGig: () -> Unit,
@@ -1186,6 +1206,24 @@ private fun DashboardActionGrid(
             label = "AIRTIME",
             icon = Icons.Outlined.PhoneAndroid,
             onClick = onAirtime,
+            modifier = Modifier.weight(1f)
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        TerminalActionButton(
+            label = "EVD BUNDLE",
+            icon = Icons.Outlined.Wifi,
+            onClick = onEvdBundle,
+            modifier = Modifier.weight(1f)
+        )
+        TerminalActionButton(
+            label = "EVD AIRTIME",
+            icon = Icons.Outlined.PhoneAndroid,
+            onClick = onEvdAirtime,
             modifier = Modifier.weight(1f)
         )
     }

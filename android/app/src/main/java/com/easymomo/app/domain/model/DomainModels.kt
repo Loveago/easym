@@ -22,6 +22,8 @@ enum class TransactionType(val code: String, val displayName: String) {
     CASH_OUT("CASH_OUT", "Cash Out"),
     AIRTIME("AIRTIME", "Airtime"),
     DATA("DATA", "Data Bundle"),
+    EVD_AIRTIME("EVD_AIRTIME", "EVD Airtime"),
+    EVD_BUNDLE("EVD_BUNDLE", "EVD Bundle"),
     GIG("GIG", "Gig Purchase"),
     MERCHANT_PAY("MERCHANT_PAY", "Pay to Merchant"),
     CUSTOM_USSD("CUSTOM_USSD", "Custom USSD"),

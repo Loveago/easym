@@ -64,7 +64,7 @@ class AdministratorUssdFlowsTest {
     }
 
     @Test
-    fun `mtn bundle purchase executes supplied sequence 2-3-1-phone-confirm-amount-pin`() {
+    fun `mtn bundle purchase executes supplied sequence 5-2-1-2-phone-confirm-1-amount-pin`() {
         val profile = loadBundledFlows().getValue("MTN_DATA")
         val sent = mutableListOf<String>()
         val controller = UssdFlowController(responseSender = { sent.add(it); true })
@@ -75,6 +75,36 @@ class AdministratorUssdFlowsTest {
         )
 
         assertTrue(controller.startFlow("tx-mtn-bundle", profile, vars).isSuccess)
+        controller.onPromptObserved("5. Airtime & Bundles")
+        controller.onPromptObserved("2. Data Bundle")
+        controller.onPromptObserved("1. Buy Bundle")
+        controller.onPromptObserved("2. Other Number")
+        controller.onPromptObserved("Enter customer number:")
+        controller.onPromptObserved("Re-enter customer number:")
+        controller.onPromptObserved("1. Specify Amount")
+        controller.onPromptObserved("Enter amount:")
+        controller.onPromptObserved("Enter MoMo PIN:")
+
+        assertEquals(listOf("5", "2", "1", "2", "0244123456", "0244123456", "1", "20"), sent)
+        assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+
+        controller.onPromptObserved("Bundle purchase of GHS 20.00 completed successfully.")
+        val done = controller.sessionState.value as UssdSessionState.Completed
+        assertEquals(OutcomeCategory.SUCCESSFUL, done.outcome.category)
+    }
+
+    @Test
+    fun `mtn evd bundle purchase executes supplied sequence 2-3-1-phone-confirm-amount-pin`() {
+        val profile = loadBundledFlows().getValue("MTN_EVD_BUNDLE")
+        val sent = mutableListOf<String>()
+        val controller = UssdFlowController(responseSender = { sent.add(it); true })
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0244123456",
+            amount = "20",
+            network = NetworkType.MTN
+        )
+
+        assertTrue(controller.startFlow("tx-mtn-evd-bundle", profile, vars).isSuccess)
         controller.onPromptObserved("2. Airtime & Bundles")
         controller.onPromptObserved("3. Data Bundle")
         controller.onPromptObserved("1. Buy Bundle")
@@ -158,7 +188,33 @@ class AdministratorUssdFlowsTest {
     }
 
     @Test
-    fun `mtn airtime executes 2-2-amount-phone-confirm-pin`() {
+    fun `telecel cash in auto-enters operational id when toggle is on and id is saved`() {
+        val profile = loadBundledFlows().getValue("TELECEL_CASH_IN")
+        val sent = mutableListOf<String>()
+        val controller = UssdFlowController(responseSender = { sent.add(it); true })
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0201234567",
+            amount = "100",
+            network = NetworkType.TELECEL,
+            operationalId = "123456"
+        )
+
+        assertTrue(controller.startFlow("tx-tel-ci-auto", profile, vars).isSuccess)
+        controller.onPromptObserved("1. Cash In")
+        controller.onPromptObserved("Enter customer phone number:")
+        controller.onPromptObserved("Enter amount:")
+        controller.onPromptObserved("Enter Operational ID:")
+        controller.onPromptObserved("Enter PIN:")
+
+        assertEquals(listOf("1", "0201234567", "100", "123456"), sent)
+        assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+
+        controller.onPromptObserved("Cash In completed successfully.")
+        assertEquals(OutcomeCategory.SUCCESSFUL, (controller.sessionState.value as UssdSessionState.Completed).outcome.category)
+    }
+
+    @Test
+    fun `mtn airtime executes 5-1-5-amount-phone-confirm-pin`() {
         val profile = loadBundledFlows().getValue("MTN_AIRTIME")
         val sent = mutableListOf<String>()
         val controller = UssdFlowController(responseSender = { sent.add(it); true })
@@ -169,6 +225,33 @@ class AdministratorUssdFlowsTest {
         )
 
         assertTrue(controller.startFlow("tx-mtn-air", profile, vars).isSuccess)
+        controller.onPromptObserved("5. Airtime & Bundles")
+        controller.onPromptObserved("1. Buy Airtime")
+        controller.onPromptObserved("5. Other Number")
+        controller.onPromptObserved("Enter amount:")
+        controller.onPromptObserved("Enter phone number:")
+        controller.onPromptObserved("Confirm number:")
+        controller.onPromptObserved("Enter MoMo PIN:")
+
+        assertEquals(listOf("5", "1", "5", "10", "0244123456", "0244123456"), sent)
+        assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+
+        controller.onPromptObserved("Airtime recharged successfully.")
+        assertEquals(OutcomeCategory.SUCCESSFUL, (controller.sessionState.value as UssdSessionState.Completed).outcome.category)
+    }
+
+    @Test
+    fun `mtn evd airtime executes 2-2-amount-phone-confirm-pin`() {
+        val profile = loadBundledFlows().getValue("MTN_EVD_AIRTIME")
+        val sent = mutableListOf<String>()
+        val controller = UssdFlowController(responseSender = { sent.add(it); true })
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0244123456",
+            amount = "10",
+            network = NetworkType.MTN
+        )
+
+        assertTrue(controller.startFlow("tx-mtn-evd-air", profile, vars).isSuccess)
         controller.onPromptObserved("2. Airtime & Bundles")
         controller.onPromptObserved("2. Buy Airtime")
         controller.onPromptObserved("Enter amount:")

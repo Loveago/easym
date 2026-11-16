@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dialpad
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Payments
@@ -53,8 +55,6 @@ import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -65,6 +65,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -84,7 +86,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -132,7 +133,6 @@ private val RoundedShape8 = RoundedCornerShape(8.dp)
 private val RoundedShape6 = RoundedCornerShape(6.dp)
 private val MtnBorderStroke = BorderStroke(1.dp, Color(0xFFFFCC00))
 private val TelecelBorderStroke = BorderStroke(1.dp, Color(0xFFE60000))
-private val TopBarBorderStroke = BorderStroke(1.dp, TerminalBorder)
 
 @Composable
 fun DashboardScreen(
@@ -220,6 +220,8 @@ fun DashboardScreen(
         containerColor = TerminalBackground,
         topBar = {
             DashboardTopBar(
+                darkModeEnabled = uiState.agentSettings.darkModeEnabled,
+                onToggleDarkMode = terminalViewModel::setDarkModeEnabled,
                 onOpenHelp = onOpenHelp,
                 onOpenHistory = onOpenHistory,
                 onOpenCustomers = onOpenCustomers,
@@ -436,6 +438,8 @@ fun DashboardScreen(
 
 @Composable
 private fun DashboardTopBar(
+    darkModeEnabled: Boolean,
+    onToggleDarkMode: (Boolean) -> Unit,
     onOpenHelp: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenCustomers: () -> Unit,
@@ -448,10 +452,12 @@ private fun DashboardTopBar(
     onLogout: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val borderColor = TerminalBorder
+    val borderStroke = remember(borderColor) { BorderStroke(1.dp, borderColor) }
 
     Surface(
         color = TerminalSurface,
-        border = TopBarBorderStroke,
+        border = borderStroke,
         modifier = Modifier.statusBarsPadding()
     ) {
         Row(
@@ -501,6 +507,8 @@ private fun DashboardTopBar(
 
     if (showMenu) {
         DashboardMenuSheet(
+            darkModeEnabled = darkModeEnabled,
+            onToggleDarkMode = onToggleDarkMode,
             onDismiss = { showMenu = false },
             onOpenHistory = { showMenu = false; onOpenHistory() },
             onOpenCustomers = { showMenu = false; onOpenCustomers() },
@@ -519,6 +527,8 @@ private fun DashboardTopBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardMenuSheet(
+    darkModeEnabled: Boolean,
+    onToggleDarkMode: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenCustomers: () -> Unit,
@@ -532,6 +542,8 @@ private fun DashboardMenuSheet(
     onLogout: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val borderColor = TerminalBorder
+    val sectionBorderStroke = remember(borderColor) { BorderStroke(1.dp, borderColor) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -595,7 +607,7 @@ private fun DashboardMenuSheet(
             Surface(
                 shape = RoundedShape10,
                 color = TerminalBackground,
-                border = TopBarBorderStroke
+                border = sectionBorderStroke
             ) {
                 Column {
                     DashboardMenuItemRow(
@@ -634,7 +646,7 @@ private fun DashboardMenuSheet(
             Surface(
                 shape = RoundedShape10,
                 color = TerminalBackground,
-                border = TopBarBorderStroke
+                border = sectionBorderStroke
             ) {
                 Column {
                     DashboardMenuItemRow(
@@ -674,9 +686,54 @@ private fun DashboardMenuSheet(
             Surface(
                 shape = RoundedShape10,
                 color = TerminalBackground,
-                border = TopBarBorderStroke
+                border = sectionBorderStroke
             ) {
                 Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleDarkMode(!darkModeEnabled) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedShape10)
+                                .background(EmeraldPrimary.copy(alpha = 0.1f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.DarkMode,
+                                contentDescription = null,
+                                tint = EmeraldPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Dark Mode",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (darkModeEnabled) "Dark terminal theme enabled" else "Light terminal theme enabled",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = darkModeEnabled,
+                            onCheckedChange = onToggleDarkMode,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = EmeraldPrimary
+                            )
+                        )
+                    }
+                    HorizontalDivider(color = TerminalBorder)
                     DashboardMenuItemRow(
                         icon = Icons.Outlined.Share,
                         title = "Share EasyMoMo",
@@ -852,11 +909,12 @@ private fun AmountPhoneInputCard(
     onClearForm: () -> Unit,
     onManualNetworkSelect: (NetworkType) -> Unit
 ) {
-    val amountTextStyle = remember {
-        TabularAmountStyle.copy(color = TextPrimary, textAlign = TextAlign.Center)
+    val textPrimary = TextPrimary
+    val amountTextStyle = remember(textPrimary) {
+        TabularAmountStyle.copy(color = textPrimary, textAlign = TextAlign.Center)
     }
-    val phoneTextStyle = remember {
-        TabularPhoneStyle.copy(color = TextPrimary, textAlign = TextAlign.Center)
+    val phoneTextStyle = remember(textPrimary) {
+        TabularPhoneStyle.copy(color = textPrimary, textAlign = TextAlign.Center)
     }
     val amountKeyboardOptions = remember { KeyboardOptions(keyboardType = KeyboardType.Decimal) }
     val phoneKeyboardOptions = remember { KeyboardOptions(keyboardType = KeyboardType.Phone) }
@@ -931,60 +989,42 @@ private fun AmountPhoneInputCard(
                     color = EmeraldPrimary
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedShape10)
-                            .background(TerminalSurfaceVariant)
-                            .border(1.dp, TerminalBorder, RoundedShape10)
-                            .padding(horizontal = 10.dp, vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        BasicTextField(
-                            value = phoneText,
-                            onValueChange = onPhoneChange,
-                            singleLine = true,
-                            keyboardOptions = phoneKeyboardOptions,
-                            textStyle = phoneTextStyle,
-                            cursorBrush = cursorBrush,
-                            decorationBox = { inner ->
-                                if (phoneText.isEmpty()) {
-                                    Text(
-                                        text = "0244123456",
-                                        style = TabularPhoneStyle,
-                                        color = TextMuted,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                                inner()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onFocusChanged { focusState ->
-                                    if (!focusState.isFocused) {
-                                        onDismissPhoneSuggestions()
-                                    }
-                                }
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = phoneSuggestions.isNotEmpty(),
-                        onDismissRequest = onDismissPhoneSuggestions,
-                        properties = PopupProperties(focusable = false),
-                        modifier = Modifier.background(TerminalSurface)
-                    ) {
-                        phoneSuggestions.forEach { suggestion ->
-                            key(suggestion.phoneNumber) {
-                                PhoneSuggestionItem(
-                                    suggestion = suggestion,
-                                    onClick = { onPhoneSuggestionSelected(suggestion) }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedShape10)
+                        .background(TerminalSurfaceVariant)
+                        .border(1.dp, TerminalBorder, RoundedShape10)
+                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicTextField(
+                        value = phoneText,
+                        onValueChange = onPhoneChange,
+                        singleLine = true,
+                        keyboardOptions = phoneKeyboardOptions,
+                        textStyle = phoneTextStyle,
+                        cursorBrush = cursorBrush,
+                        decorationBox = { inner ->
+                            if (phoneText.isEmpty()) {
+                                Text(
+                                    text = "0244123456",
+                                    style = TabularPhoneStyle,
+                                    color = TextMuted,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                        }
-                    }
+                            inner()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { focusState ->
+                                if (!focusState.isFocused) {
+                                    onDismissPhoneSuggestions()
+                                }
+                            }
+                    )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 if (detectedNetwork != NetworkType.UNKNOWN) {
@@ -1006,6 +1046,32 @@ private fun AmountPhoneInputCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = StatusError
                     )
+                }
+            }
+        }
+
+        // Inline phone suggestions strip (rendered below inputs so it never covers the phone field)
+        if (phoneSuggestions.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Suggested Numbers",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                phoneSuggestions.forEach { suggestion ->
+                    key(suggestion.phoneNumber) {
+                        PhoneSuggestionItem(
+                            suggestion = suggestion,
+                            onClick = { onPhoneSuggestionSelected(suggestion) }
+                        )
+                    }
                 }
             }
         }
@@ -1080,24 +1146,33 @@ private fun PhoneSuggestionItem(
             append("Used ${suggestion.usageCount}x")
         }
     }
-    DropdownMenuItem(
-        text = {
-            Column {
-                Text(
-                    text = suggestion.phoneNumber,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = meta,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary
-                )
-            }
-        },
-        onClick = onClick
-    )
+    val borderColor = TerminalBorder
+    val borderStroke = remember(borderColor) { BorderStroke(1.dp, borderColor) }
+
+    Surface(
+        shape = RoundedShape8,
+        color = TerminalSurfaceVariant,
+        border = borderStroke,
+        modifier = Modifier
+            .clip(RoundedShape8)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = suggestion.phoneNumber,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            Text(
+                text = meta,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+    }
 }
 
 @Composable

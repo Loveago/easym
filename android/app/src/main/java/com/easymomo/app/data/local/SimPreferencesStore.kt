@@ -34,7 +34,8 @@ data class AgentSettings(
     val autoClearFormAfterTx: Boolean = false,
     val saveCustomerNumbersEnabled: Boolean = true,
     val hideTodayTotalsOnHome: Boolean = false,
-    val customerCloudSyncEnabled: Boolean = true
+    val customerCloudSyncEnabled: Boolean = true,
+    val darkModeEnabled: Boolean = false
 )
 
 /**
@@ -94,6 +95,7 @@ class SimPreferencesStore(private val context: Context) {
     private val saveCustomerNumbersKey = booleanPreferencesKey("agent_save_customer_numbers")
     private val hideTodayTotalsKey = booleanPreferencesKey("agent_hide_today_totals")
     private val customerCloudSyncKey = booleanPreferencesKey("agent_customer_cloud_sync_enabled")
+    private val darkModeEnabledKey = booleanPreferencesKey("agent_dark_mode_enabled")
     private val lastCustomerSyncAtKey = longPreferencesKey("customer_sync_last_at")
     private val lastCustomerSyncErrorKey = stringPreferencesKey("customer_sync_last_error")
     private val lastCustomerSyncUserIdKey = stringPreferencesKey("customer_sync_last_user_id")
@@ -105,7 +107,8 @@ class SimPreferencesStore(private val context: Context) {
                 autoClearFormAfterTx = prefs[autoClearFormKey] ?: false,
                 saveCustomerNumbersEnabled = prefs[saveCustomerNumbersKey] ?: true,
                 hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false,
-                customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true
+                customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true,
+                darkModeEnabled = prefs[darkModeEnabledKey] ?: false
             )
         }
 
@@ -116,7 +119,8 @@ class SimPreferencesStore(private val context: Context) {
                 autoClearFormAfterTx = prefs[autoClearFormKey] ?: false,
                 saveCustomerNumbersEnabled = prefs[saveCustomerNumbersKey] ?: true,
                 hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false,
-                customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true
+                customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true,
+                darkModeEnabled = prefs[darkModeEnabledKey] ?: false
             )
             val updated = transform(current)
             prefs[defaultNetworkModeKey] = updated.defaultNetworkMode
@@ -124,6 +128,7 @@ class SimPreferencesStore(private val context: Context) {
             prefs[saveCustomerNumbersKey] = updated.saveCustomerNumbersEnabled
             prefs[hideTodayTotalsKey] = updated.hideTodayTotalsOnHome
             prefs[customerCloudSyncKey] = updated.customerCloudSyncEnabled
+            prefs[darkModeEnabledKey] = updated.darkModeEnabled
         }
     }
 

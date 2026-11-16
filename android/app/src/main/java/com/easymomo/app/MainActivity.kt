@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -48,33 +50,34 @@ class MainActivity : ComponentActivity() {
         val app = application as EasyMoMoApplication
 
         setContent {
-            EasyMoMoTheme {
-                val authVm: AuthViewModel = viewModel(
-                    factory = AuthViewModel.Factory(app.authRepository)
+            val authVm: AuthViewModel = viewModel(
+                factory = AuthViewModel.Factory(app.authRepository)
+            )
+            val terminalVm: TerminalViewModel = viewModel(
+                factory = TerminalViewModel.Factory(
+                    app.transactionRepository,
+                    app.authRepository,
+                    app.ussdLauncher,
+                    app.simManager,
+                    app.permissionManager,
+                    app.customerSyncManager
                 )
-                val terminalVm: TerminalViewModel = viewModel(
-                    factory = TerminalViewModel.Factory(
-                        app.transactionRepository,
-                        app.authRepository,
-                        app.ussdLauncher,
-                        app.simManager,
-                        app.permissionManager,
-                        app.customerSyncManager
-                    )
+            )
+            val historyVm: HistoryReportsViewModel = viewModel(
+                factory = HistoryReportsViewModel.Factory(app.transactionRepository)
+            )
+            val customUssdVm: CustomUssdViewModel = viewModel(
+                factory = CustomUssdViewModel.Factory(
+                    app.customUssdRepository,
+                    app.simManager,
+                    app.ussdLauncher,
+                    app.permissionManager
                 )
-                val historyVm: HistoryReportsViewModel = viewModel(
-                    factory = HistoryReportsViewModel.Factory(app.transactionRepository)
-                )
-                val customUssdVm: CustomUssdViewModel = viewModel(
-                    factory = CustomUssdViewModel.Factory(
-                        app.customUssdRepository,
-                        app.simManager,
-                        app.ussdLauncher,
-                        app.permissionManager
-                    )
-                )
-                authViewModelRef = authVm
+            )
+            authViewModelRef = authVm
+            val terminalUiState by terminalVm.uiState.collectAsStateWithLifecycle()
 
+            EasyMoMoTheme(darkTheme = terminalUiState.agentSettings.darkModeEnabled) {
                 EasyMoMoNavGraph(
                     authViewModel = authVm,
                     terminalViewModel = terminalVm,

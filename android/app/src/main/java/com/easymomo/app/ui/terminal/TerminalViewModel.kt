@@ -212,6 +212,12 @@ class TerminalViewModel(
         }
     }
 
+    fun setDarkModeEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            simManager.updateAgentSettings { it.copy(darkModeEnabled = enabled) }
+        }
+    }
+
     fun syncCustomersNow() {
         viewModelScope.launch(Dispatchers.IO) {
             customerSyncManager?.syncNow()

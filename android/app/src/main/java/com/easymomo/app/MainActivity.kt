@@ -58,7 +58,8 @@ class MainActivity : ComponentActivity() {
                         app.authRepository,
                         app.ussdLauncher,
                         app.simManager,
-                        app.permissionManager
+                        app.permissionManager,
+                        app.customerSyncManager
                     )
                 )
                 val historyVm: HistoryReportsViewModel = viewModel(

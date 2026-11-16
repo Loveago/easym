@@ -10,6 +10,8 @@ import com.easymomo.app.data.local.SavedSimSelection
 import com.easymomo.app.data.local.TransactionEntity
 import com.easymomo.app.data.local.UssdFlowConfigEntity
 import com.easymomo.app.data.repository.AuthSubscriptionRepository
+import com.easymomo.app.data.repository.CustomerSyncManager
+import com.easymomo.app.data.repository.CustomerSyncStatusSnapshot
 import com.easymomo.app.data.repository.ReportAggregator
 import com.easymomo.app.data.repository.ReportSummary
 import com.easymomo.app.data.repository.TransactionRepository
@@ -88,7 +90,8 @@ class TerminalViewModel(
     private val authRepo: AuthSubscriptionRepository,
     private val ussdLauncher: UssdLauncher,
     private val simManager: SimManager,
-    private val permissionManager: PermissionCapabilityManager
+    private val permissionManager: PermissionCapabilityManager,
+    private val customerSyncManager: CustomerSyncManager? = null
 ) : ViewModel() {
 
     private val sessionManager = UssdSessionManager()
@@ -114,6 +117,10 @@ class TerminalViewModel(
 
     val savedCustomerNumbers: StateFlow<List<CustomerNumberEntity>> = txRepo.observeCustomerNumbers()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val customerSyncStatus: StateFlow<CustomerSyncStatusSnapshot> =
+        (customerSyncManager?.statusFlow ?: kotlinx.coroutines.flow.flowOf(CustomerSyncStatusSnapshot()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CustomerSyncStatusSnapshot())
 
     val todaySummary: StateFlow<ReportSummary> = run {
         val cal = Calendar.getInstance().apply {
@@ -193,6 +200,21 @@ class TerminalViewModel(
     fun setHideTodayTotalsOnHome(hidden: Boolean) {
         viewModelScope.launch {
             simManager.updateAgentSettings { it.copy(hideTodayTotalsOnHome = hidden) }
+        }
+    }
+
+    fun setCustomerCloudSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            simManager.updateAgentSettings { it.copy(customerCloudSyncEnabled = enabled) }
+            if (enabled) {
+                customerSyncManager?.scheduleAutoSyncIfEnabled(true)
+            }
+        }
+    }
+
+    fun syncCustomersNow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            customerSyncManager?.syncNow()
         }
     }
 
@@ -803,11 +825,19 @@ class TerminalViewModel(
         private val authRepo: AuthSubscriptionRepository,
         private val ussdLauncher: UssdLauncher,
         private val simManager: SimManager,
-        private val permissionManager: PermissionCapabilityManager
+        private val permissionManager: PermissionCapabilityManager,
+        private val customerSyncManager: CustomerSyncManager? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return TerminalViewModel(txRepo, authRepo, ussdLauncher, simManager, permissionManager) as T
+            return TerminalViewModel(
+                txRepo,
+                authRepo,
+                ussdLauncher,
+                simManager,
+                permissionManager,
+                customerSyncManager
+            ) as T
         }
     }
 

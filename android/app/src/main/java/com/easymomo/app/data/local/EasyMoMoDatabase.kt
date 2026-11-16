@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UssdCaptureEventEntity::class,
         CustomUssdFlowEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class EasyMoMoDatabase : RoomDatabase() {
@@ -136,6 +136,21 @@ abstract class EasyMoMoDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `cloudId` TEXT")
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `ownerUserId` TEXT")
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `syncStatus` TEXT NOT NULL DEFAULT 'PENDING_UPLOAD'")
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `version` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `customer_numbers` SET `updatedAt` = `lastUsedAt` WHERE `updatedAt` = 0")
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `deletedAt` INTEGER")
+                db.execSQL("ALTER TABLE `customer_numbers` ADD COLUMN `lastSyncedAt` INTEGER")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_customer_numbers_syncStatus` ON `customer_numbers` (`syncStatus`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_customer_numbers_ownerUserId` ON `customer_numbers` (`ownerUserId`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: EasyMoMoDatabase? = null
 
@@ -158,7 +173,7 @@ abstract class EasyMoMoDatabase : RoomDatabase() {
                             }
                         }
                     })
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

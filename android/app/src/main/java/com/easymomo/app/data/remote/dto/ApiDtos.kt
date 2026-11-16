@@ -157,3 +157,52 @@ data class DataBundleDto(
 data class DataBundlesResponse(
     val bundles: List<DataBundleDto>
 )
+
+data class CustomerSyncItemDto(
+    val cloudId: String? = null,
+    val phoneNumber: String,
+    val normalizedPhoneNumber: String? = null,
+    val nickname: String? = null,
+    val firstUsedAt: Long,
+    val lastUsedAt: Long,
+    val usageCount: Int,
+    val updatedAt: Long,
+    val deletedAt: Long? = null
+)
+
+data class CustomerCloudDto(
+    val id: String,
+    val normalizedPhoneNumber: String,
+    val phoneNumber: String,
+    val nickname: String? = null,
+    val firstUsedAt: Long,
+    val lastUsedAt: Long,
+    val usageCount: Int,
+    val version: Int,
+    val deletedAt: Long? = null,
+    val syncedAt: Long,
+    val updatedAt: Long
+)
+
+data class CustomerSyncRequest(
+    val customers: List<CustomerSyncItemDto>
+)
+
+data class CustomerSyncResponse(
+    val synced: List<CustomerCloudDto>,
+    val serverTime: Long
+)
+
+data class CustomerListResponse(
+    val customers: List<CustomerCloudDto>,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val serverTime: Long
+)
+
+data class CustomerSyncStatusDto(
+    val activeCount: Int,
+    val deletedCount: Int,
+    val lastUpdatedAt: Long? = null,
+    val serverTime: Long
+)

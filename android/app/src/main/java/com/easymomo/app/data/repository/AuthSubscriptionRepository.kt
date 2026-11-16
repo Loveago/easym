@@ -13,14 +13,21 @@ import com.easymomo.app.data.remote.dto.SubscriptionStatusDto
 import com.easymomo.app.domain.model.AgentUser
 import com.easymomo.app.domain.model.SubscriptionInfo
 import com.easymomo.app.domain.model.SubscriptionStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class AuthSubscriptionRepository(
     private val api: EasyMoMoApiService,
-    private val sessionStore: SessionStore
+    private val sessionStore: SessionStore,
+    private val onUserAuthenticated: (suspend (userId: String) -> Unit)? = null,
+    private val onUserLoggedOut: (suspend (previousUserId: String?) -> Unit)? = null
 ) {
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _currentUser = MutableStateFlow(sessionStore.getUser())
     val currentUser: StateFlow<AgentUser?> = _currentUser.asStateFlow()
 
@@ -89,6 +96,9 @@ class AuthSubscriptionRepository(
                 sessionStore.saveSubscription(sub)
                 _subscription.value = sub
             }
+            backgroundScope.launch {
+                runCatching { onUserAuthenticated?.invoke(user.id) }
+            }
             user
         }
     }
@@ -114,6 +124,9 @@ class AuthSubscriptionRepository(
             body.entitlement?.toDomain()?.let { sub ->
                 sessionStore.saveSubscription(sub)
                 _subscription.value = sub
+            }
+            backgroundScope.launch {
+                runCatching { onUserAuthenticated?.invoke(user.id) }
             }
             user
         }
@@ -183,9 +196,13 @@ class AuthSubscriptionRepository(
     }
 
     fun logout() {
+        val previousUserId = _currentUser.value?.id
         sessionStore.clearSession()
         _currentUser.value = null
         _subscription.value = SubscriptionInfo()
+        backgroundScope.launch {
+            runCatching { onUserLoggedOut?.invoke(previousUserId) }
+        }
     }
 
     private fun SubscriptionStatusDto.toDomain(): SubscriptionInfo {

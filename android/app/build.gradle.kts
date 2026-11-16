@@ -101,6 +101,7 @@ dependencies {
 
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)
+    implementation(libs.work.runtime.ktx)
     implementation(libs.security.crypto)
     implementation(libs.browser)
 

@@ -7,6 +7,7 @@ import com.easymomo.app.data.local.SimPreferencesStore
 import com.easymomo.app.data.remote.ApiClient
 import com.easymomo.app.data.remote.EasyMoMoApiService
 import com.easymomo.app.data.repository.AuthSubscriptionRepository
+import com.easymomo.app.data.repository.CustomerSyncManager
 import com.easymomo.app.data.repository.CustomUssdRepository
 import com.easymomo.app.data.repository.TransactionRepository
 import com.easymomo.app.ussd.PermissionCapabilityManager
@@ -15,6 +16,7 @@ import com.easymomo.app.ussd.UssdLauncher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class EasyMoMoApplication : Application() {
@@ -28,8 +30,22 @@ class EasyMoMoApplication : Application() {
     val apiService: EasyMoMoApiService by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         ApiClient.create(sessionStore)
     }
+    val customerSyncManager: CustomerSyncManager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        CustomerSyncManager(
+            context = this,
+            customerNumberDao = database.customerNumberDao(),
+            api = apiService,
+            sessionStore = sessionStore,
+            simPreferencesStore = simPreferencesStore
+        )
+    }
     val authRepository: AuthSubscriptionRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        AuthSubscriptionRepository(apiService, sessionStore)
+        AuthSubscriptionRepository(
+            api = apiService,
+            sessionStore = sessionStore,
+            onUserAuthenticated = { userId -> customerSyncManager.onUserAuthenticated(userId) },
+            onUserLoggedOut = { previousUserId -> customerSyncManager.onUserLoggedOut(previousUserId) }
+        )
     }
     val transactionRepository: TransactionRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         TransactionRepository(
@@ -38,7 +54,14 @@ class EasyMoMoApplication : Application() {
             dataBundleDao = database.dataBundleDao(),
             syncQueueDao = database.syncQueueDao(),
             api = apiService,
-            customerNumberDao = database.customerNumberDao()
+            customerNumberDao = database.customerNumberDao(),
+            currentUserIdProvider = { sessionStore.getUser()?.id },
+            onCustomerSyncNeeded = {
+                appScope.launch {
+                    val enabled = simPreferencesStore.agentSettingsFlow.first().customerCloudSyncEnabled
+                    customerSyncManager.scheduleAutoSyncIfEnabled(enabled)
+                }
+            }
         )
     }
     val ussdLauncher: UssdLauncher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

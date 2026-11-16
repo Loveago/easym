@@ -46,14 +46,34 @@ class CustomerNumberHistoryTest {
             return inserted.id
         }
 
-        override suspend fun incrementUsage(id: Long, displayPhone: String, lastUsedAt: Long) {
+        override suspend fun upsert(entity: CustomerNumberEntity): Long {
+            val idx = items.indexOfFirst { it.normalizedPhoneNumber == entity.normalizedPhoneNumber }
+            return if (idx >= 0) {
+                items[idx] = entity.copy(id = items[idx].id)
+                emit()
+                items[idx].id
+            } else {
+                insert(entity)
+            }
+        }
+
+        override suspend fun incrementUsage(
+            id: Long,
+            displayPhone: String,
+            lastUsedAt: Long,
+            ownerUserId: String?
+        ) {
             val idx = items.indexOfFirst { it.id == id }
             if (idx >= 0) {
                 val cur = items[idx]
                 items[idx] = cur.copy(
                     phoneNumber = displayPhone,
                     lastUsedAt = lastUsedAt,
-                    usageCount = cur.usageCount + 1
+                    usageCount = cur.usageCount + 1,
+                    updatedAt = lastUsedAt,
+                    deletedAt = null,
+                    syncStatus = "PENDING_UPLOAD",
+                    ownerUserId = ownerUserId ?: cur.ownerUserId
                 )
                 emit()
             }
@@ -65,9 +85,11 @@ class CustomerNumberHistoryTest {
             limit: Int
         ): List<CustomerNumberEntity> {
             return items.filter {
-                it.normalizedPhoneNumber.contains(digitQuery) ||
-                    it.phoneNumber.contains(digitQuery) ||
-                    (rawLowerQuery.isNotEmpty() && it.nickname?.lowercase()?.contains(rawLowerQuery) == true)
+                it.deletedAt == null && (
+                    it.normalizedPhoneNumber.contains(digitQuery) ||
+                        it.phoneNumber.contains(digitQuery) ||
+                        (rawLowerQuery.isNotEmpty() && it.nickname?.lowercase()?.contains(rawLowerQuery) == true)
+                    )
             }.sortedWith(
                 compareBy<CustomerNumberEntity>(
                     { if (it.normalizedPhoneNumber.startsWith(digitQuery)) 0 else 1 },
@@ -79,12 +101,41 @@ class CustomerNumberHistoryTest {
 
         override fun observeAll(): Flow<List<CustomerNumberEntity>> = flow
 
-        override suspend fun updateNickname(id: Long, nickname: String?) {
+        override suspend fun updateNickname(id: Long, nickname: String?, updatedAt: Long) {
             val idx = items.indexOfFirst { it.id == id }
             if (idx >= 0) {
-                items[idx] = items[idx].copy(nickname = nickname)
+                items[idx] = items[idx].copy(
+                    nickname = nickname,
+                    updatedAt = updatedAt,
+                    syncStatus = "PENDING_UPLOAD"
+                )
                 emit()
             }
+        }
+
+        override suspend fun markDeleted(id: Long, deletedAt: Long) {
+            val idx = items.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                items[idx] = items[idx].copy(
+                    deletedAt = deletedAt,
+                    updatedAt = deletedAt,
+                    syncStatus = "PENDING_DELETE"
+                )
+                emit()
+            }
+        }
+
+        override suspend fun markAllDeleted(deletedAt: Long) {
+            for (i in items.indices) {
+                if (items[i].deletedAt == null) {
+                    items[i] = items[i].copy(
+                        deletedAt = deletedAt,
+                        updatedAt = deletedAt,
+                        syncStatus = "PENDING_DELETE"
+                    )
+                }
+            }
+            emit()
         }
 
         override suspend fun deleteById(id: Long) {
@@ -97,8 +148,52 @@ class CustomerNumberHistoryTest {
             emit()
         }
 
+        override suspend fun getPendingChanges(): List<CustomerNumberEntity> =
+            items.filter { it.syncStatus != "SYNCED" }
+
+        override suspend fun markSynced(
+            id: Long,
+            cloudId: String,
+            ownerUserId: String,
+            version: Int,
+            syncedAt: Long
+        ) {
+            val idx = items.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                items[idx] = items[idx].copy(
+                    cloudId = cloudId,
+                    ownerUserId = ownerUserId,
+                    version = version,
+                    syncStatus = "SYNCED",
+                    lastSyncedAt = syncedAt
+                )
+                emit()
+            }
+        }
+
+        override suspend fun purgeSyncedTombstones() {
+            items.removeAll { it.syncStatus == "SYNCED" && it.deletedAt != null }
+            emit()
+        }
+
+        override suspend fun deleteAllForOwner(ownerUserId: String) {
+            items.removeAll { it.ownerUserId == ownerUserId }
+            emit()
+        }
+
+        override suspend fun deleteOtherAccountRecords(currentUserId: String) {
+            items.removeAll { it.ownerUserId != null && it.ownerUserId != currentUserId }
+            emit()
+        }
+
+        override fun observeActiveCount(): Flow<Int> = MutableStateFlow(items.count { it.deletedAt == null })
+        override fun observeSyncedCount(): Flow<Int> = MutableStateFlow(items.count { it.deletedAt == null && it.syncStatus == "SYNCED" })
+        override fun observePendingCount(): Flow<Int> = MutableStateFlow(items.count { it.syncStatus != "SYNCED" })
+
         private fun emit() {
-            flow.value = items.sortedWith(compareBy({ -it.lastUsedAt }, { -it.usageCount }))
+            flow.value = items
+                .filter { it.deletedAt == null }
+                .sortedWith(compareBy({ -it.lastUsedAt }, { -it.usageCount }))
         }
     }
 

@@ -95,7 +95,9 @@ data class DataBundleEntity(
         Index(value = ["normalizedPhoneNumber"], unique = true),
         Index(value = ["phoneNumber"]),
         Index(value = ["lastUsedAt"]),
-        Index(value = ["usageCount"])
+        Index(value = ["usageCount"]),
+        Index(value = ["syncStatus"]),
+        Index(value = ["ownerUserId"])
     ]
 )
 data class CustomerNumberEntity(
@@ -106,7 +108,14 @@ data class CustomerNumberEntity(
     val nickname: String? = null,
     val firstUsedAt: Long,
     val lastUsedAt: Long,
-    val usageCount: Int = 1
+    val usageCount: Int = 1,
+    val cloudId: String? = null,
+    val ownerUserId: String? = null,
+    val syncStatus: String = "PENDING_UPLOAD",
+    val version: Int = 1,
+    val updatedAt: Long = lastUsedAt,
+    val deletedAt: Long? = null,
+    val lastSyncedAt: Long? = null
 )
 
 @Entity(

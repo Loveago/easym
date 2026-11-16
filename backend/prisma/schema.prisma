@@ -83,9 +83,10 @@ model User {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  entitlement  SubscriptionEntitlement?
-  payments     Payment[]
-  transactions Transaction[]
+  entitlement     SubscriptionEntitlement?
+  payments        Payment[]
+  transactions    Transaction[]
+  customerNumbers CustomerNumber[]
 
   @@index([email])
   @@index([phone])
@@ -251,4 +252,28 @@ model SystemSetting {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
+}
+
+model CustomerNumber {
+  id                       String    @id @default(uuid())
+  userId                   String    @map("user_id")
+  phoneHash                String    @map("phone_hash")
+  encryptedNormalizedPhone String    @map("encrypted_normalized_phone")
+  encryptedDisplayPhone    String    @map("encrypted_display_phone")
+  encryptedNickname        String?   @map("encrypted_nickname")
+  firstUsedAt              DateTime  @map("first_used_at")
+  lastUsedAt               DateTime  @map("last_used_at")
+  usageCount               Int       @default(1) @map("usage_count")
+  version                  Int       @default(1)
+  deletedAt                DateTime? @map("deleted_at")
+  syncedAt                 DateTime  @default(now()) @map("synced_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, phoneHash])
+  @@index([userId, updatedAt])
+  @@index([userId, deletedAt])
+  @@map("customer_numbers")
 }

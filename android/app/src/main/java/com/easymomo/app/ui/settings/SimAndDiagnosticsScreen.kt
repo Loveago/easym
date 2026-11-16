@@ -66,6 +66,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.easymomo.app.data.local.SimPreferencesStore
+import com.easymomo.app.data.repository.CustomerCloudSyncState
 import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionType
 import com.easymomo.app.ui.terminal.TerminalViewModel
@@ -99,6 +100,7 @@ fun SimAndDiagnosticsScreen(
     onBack: () -> Unit
 ) {
     val uiState by terminalViewModel.uiState.collectAsState()
+    val syncStatus by terminalViewModel.customerSyncStatus.collectAsState()
     val flows by terminalViewModel.allUssdFlows.collectAsState()
     val simState by terminalViewModel.ussdState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -412,6 +414,83 @@ fun SimAndDiagnosticsScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
                 )
+            }
+
+            // 1c. Customer Cloud Sync
+            EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
+                val statusColor = when (syncStatus.state) {
+                    CustomerCloudSyncState.SYNCED -> StatusSuccess
+                    CustomerCloudSyncState.SYNCING -> EmeraldPrimary
+                    CustomerCloudSyncState.PENDING -> StatusWarning
+                    CustomerCloudSyncState.OFFLINE -> TextSecondary
+                    CustomerCloudSyncState.SYNC_FAILED -> StatusError
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Customer Cloud Sync",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(
+                        color = statusColor.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(999.dp)
+                    ) {
+                        Text(
+                            text = syncStatus.state.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                SettingToggleRow(
+                    title = "Automatic Cloud Backup",
+                    subtitle = "Automatically back up and restore saved customer numbers across your devices.",
+                    checked = syncStatus.autoSyncEnabled,
+                    onCheckedChange = terminalViewModel::setCustomerCloudSyncEnabled
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = TerminalBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Locally saved: ${syncStatus.localCount}", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Text("Synced: ${syncStatus.syncedCount}", style = MaterialTheme.typography.labelSmall, color = StatusSuccess)
+                    Text("Pending: ${syncStatus.pendingCount}", style = MaterialTheme.typography.labelSmall, color = if (syncStatus.pendingCount > 0) StatusWarning else TextSecondary)
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                val lastSyncLabel = remember(syncStatus.lastSuccessAt) {
+                    if (syncStatus.lastSuccessAt <= 0L) "Never"
+                    else java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                        .format(java.util.Date(syncStatus.lastSuccessAt))
+                }
+                Text(
+                    text = "Last successful sync: $lastSyncLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+                syncStatus.lastError?.takeIf { it.isNotBlank() }?.let { err ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Last sync error: $err",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = StatusError
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = { terminalViewModel.syncCustomersNow() },
+                    enabled = syncStatus.state != CustomerCloudSyncState.SYNCING,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (syncStatus.state == CustomerCloudSyncState.SYNCING) "Syncing..." else "Sync Now")
+                }
             }
 
             // 2. Permissions & Accessibility Service

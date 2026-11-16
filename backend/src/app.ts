@@ -8,6 +8,7 @@ import adminRoutes from './routes/admin';
 import adminPanelRoutes from './routes/adminPanel';
 import authRoutes from './routes/auth';
 import configRoutes from './routes/config';
+import customerRoutes from './routes/customers';
 import healthRoutes from './routes/health';
 import reportRoutes from './routes/reports';
 import subscriptionRoutes from './routes/subscriptions';
@@ -60,6 +61,7 @@ export function createApp() {
   app.use('/api/subscriptions', subscriptionRoutes);
   app.use('/api/webhooks', webhookRoutes);
   app.use('/api/transactions', transactionRoutes);
+  app.use('/api/customers', customerRoutes);
   app.use('/api/reports', reportRoutes);
   app.use('/api/config', configRoutes);
   app.use('/api/admin', adminRoutes);

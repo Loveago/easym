@@ -1,6 +1,10 @@
 package com.easymomo.app.data.remote
 
 import com.easymomo.app.data.remote.dto.AuthResponse
+import com.easymomo.app.data.remote.dto.CustomerListResponse
+import com.easymomo.app.data.remote.dto.CustomerSyncRequest
+import com.easymomo.app.data.remote.dto.CustomerSyncResponse
+import com.easymomo.app.data.remote.dto.CustomerSyncStatusDto
 import com.easymomo.app.data.remote.dto.DataBundlesResponse
 import com.easymomo.app.data.remote.dto.InitializePaymentRequest
 import com.easymomo.app.data.remote.dto.InitializePaymentResponse
@@ -51,4 +55,18 @@ interface EasyMoMoApiService {
 
     @GET("config/bundles")
     suspend fun getDataBundles(@Query("network") network: String? = null): Response<DataBundlesResponse>
+
+    @GET("customers")
+    suspend fun getCustomers(
+        @Query("since") since: Long? = null,
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int = 100,
+        @Query("includeDeleted") includeDeleted: Boolean = true
+    ): Response<CustomerListResponse>
+
+    @POST("customers/sync")
+    suspend fun syncCustomers(@Body request: CustomerSyncRequest): Response<CustomerSyncResponse>
+
+    @GET("customers/status")
+    suspend fun getCustomerSyncStatus(): Response<CustomerSyncStatusDto>
 }

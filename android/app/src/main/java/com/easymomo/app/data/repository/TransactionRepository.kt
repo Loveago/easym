@@ -34,7 +34,9 @@ class TransactionRepository(
     private val syncQueueDao: SyncQueueDao,
     private val api: EasyMoMoApiService,
     private val gson: Gson = Gson(),
-    private val customerNumberDao: CustomerNumberDao? = null
+    private val customerNumberDao: CustomerNumberDao? = null,
+    private val currentUserIdProvider: (() -> String?)? = null,
+    private val onCustomerSyncNeeded: (() -> Unit)? = null
 ) {
     private data class FlowsWrapper(
         @SerializedName("flows") val flows: List<UssdFlowProfile>
@@ -85,9 +87,10 @@ class TransactionRepository(
         if (!NetworkPrefixDetector.isValidGhanaPhone(rawPhone)) return null
         val normalized = NetworkPrefixDetector.normalizeGhanaPhone(rawPhone)
         val now = System.currentTimeMillis()
+        val ownerId = currentUserIdProvider?.invoke()
         val existing = dao.getByNormalizedPhone(normalized)
-        return if (existing != null) {
-            dao.incrementUsage(existing.id, normalized, now)
+        val recordId = if (existing != null) {
+            dao.incrementUsage(existing.id, normalized, now, ownerId)
             existing.id
         } else {
             dao.insert(
@@ -96,10 +99,15 @@ class TransactionRepository(
                     normalizedPhoneNumber = normalized,
                     firstUsedAt = now,
                     lastUsedAt = now,
-                    usageCount = 1
+                    usageCount = 1,
+                    ownerUserId = ownerId,
+                    syncStatus = "PENDING_UPLOAD",
+                    updatedAt = now
                 )
             )
         }
+        onCustomerSyncNeeded?.invoke()
+        return recordId
     }
 
     suspend fun searchCustomerNumberSuggestions(rawQuery: String, limit: Int = 5): List<CustomerNumberEntity> {
@@ -112,15 +120,18 @@ class TransactionRepository(
     }
 
     suspend fun updateCustomerNickname(id: Long, nickname: String?) {
-        customerNumberDao?.updateNickname(id, nickname?.trim()?.takeIf { it.isNotEmpty() })
+        customerNumberDao?.updateNickname(id, nickname?.trim()?.takeIf { it.isNotEmpty() }, System.currentTimeMillis())
+        onCustomerSyncNeeded?.invoke()
     }
 
     suspend fun deleteCustomerNumber(id: Long) {
-        customerNumberDao?.deleteById(id)
+        customerNumberDao?.markDeleted(id, System.currentTimeMillis())
+        onCustomerSyncNeeded?.invoke()
     }
 
     suspend fun clearCustomerNumbers() {
-        customerNumberDao?.deleteAll()
+        customerNumberDao?.markAllDeleted(System.currentTimeMillis())
+        onCustomerSyncNeeded?.invoke()
     }
 
     suspend fun createDraftTransaction(

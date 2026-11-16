@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.easymomo.app.domain.model.NetworkType
@@ -32,7 +33,8 @@ data class AgentSettings(
     val defaultNetworkMode: String = "ASK", // "ASK", "MTN", "TELECEL", "AT"
     val autoClearFormAfterTx: Boolean = false,
     val saveCustomerNumbersEnabled: Boolean = true,
-    val hideTodayTotalsOnHome: Boolean = false
+    val hideTodayTotalsOnHome: Boolean = false,
+    val customerCloudSyncEnabled: Boolean = true
 )
 
 /**
@@ -91,6 +93,10 @@ class SimPreferencesStore(private val context: Context) {
     private val autoClearFormKey = booleanPreferencesKey("agent_auto_clear_form")
     private val saveCustomerNumbersKey = booleanPreferencesKey("agent_save_customer_numbers")
     private val hideTodayTotalsKey = booleanPreferencesKey("agent_hide_today_totals")
+    private val customerCloudSyncKey = booleanPreferencesKey("agent_customer_cloud_sync_enabled")
+    private val lastCustomerSyncAtKey = longPreferencesKey("customer_sync_last_at")
+    private val lastCustomerSyncErrorKey = stringPreferencesKey("customer_sync_last_error")
+    private val lastCustomerSyncUserIdKey = stringPreferencesKey("customer_sync_last_user_id")
 
     val agentSettingsFlow: Flow<AgentSettings> =
         context.simPreferencesDataStore.data.map { prefs ->
@@ -98,7 +104,8 @@ class SimPreferencesStore(private val context: Context) {
                 defaultNetworkMode = prefs[defaultNetworkModeKey] ?: "ASK",
                 autoClearFormAfterTx = prefs[autoClearFormKey] ?: false,
                 saveCustomerNumbersEnabled = prefs[saveCustomerNumbersKey] ?: true,
-                hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false
+                hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false,
+                customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true
             )
         }
 
@@ -108,13 +115,43 @@ class SimPreferencesStore(private val context: Context) {
                 defaultNetworkMode = prefs[defaultNetworkModeKey] ?: "ASK",
                 autoClearFormAfterTx = prefs[autoClearFormKey] ?: false,
                 saveCustomerNumbersEnabled = prefs[saveCustomerNumbersKey] ?: true,
-                hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false
+                hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false,
+                customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true
             )
             val updated = transform(current)
             prefs[defaultNetworkModeKey] = updated.defaultNetworkMode
             prefs[autoClearFormKey] = updated.autoClearFormAfterTx
             prefs[saveCustomerNumbersKey] = updated.saveCustomerNumbersEnabled
             prefs[hideTodayTotalsKey] = updated.hideTodayTotalsOnHome
+            prefs[customerCloudSyncKey] = updated.customerCloudSyncEnabled
+        }
+    }
+
+    val customerSyncMetaFlow: Flow<Triple<Long, String?, String?>> =
+        context.simPreferencesDataStore.data.map { prefs ->
+            Triple(
+                prefs[lastCustomerSyncAtKey] ?: 0L,
+                prefs[lastCustomerSyncErrorKey],
+                prefs[lastCustomerSyncUserIdKey]
+            )
+        }
+
+    suspend fun getLastCustomerSyncMeta(): Triple<Long, String?, String?> =
+        customerSyncMetaFlow.first()
+
+    suspend fun saveCustomerSyncMeta(lastSyncAt: Long, error: String?, userId: String?) {
+        context.simPreferencesDataStore.edit { prefs ->
+            prefs[lastCustomerSyncAtKey] = lastSyncAt
+            if (error.isNullOrBlank()) {
+                prefs.remove(lastCustomerSyncErrorKey)
+            } else {
+                prefs[lastCustomerSyncErrorKey] = error
+            }
+            if (userId.isNullOrBlank()) {
+                prefs.remove(lastCustomerSyncUserIdKey)
+            } else {
+                prefs[lastCustomerSyncUserIdKey] = userId
+            }
         }
     }
 

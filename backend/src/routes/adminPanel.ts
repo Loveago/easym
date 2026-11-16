@@ -717,7 +717,7 @@ const ADMIN_JS = `(() => {
   $('loginForm').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      const data = await api('/auth/login', {
+      const data = await api('/admin/login', {
         method: 'POST',
         body: JSON.stringify({
           email: $('loginEmail').value.trim(),

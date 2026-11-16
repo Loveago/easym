@@ -1,9 +1,14 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { AccountStatus, BillingInterval, NetworkType, UserRole } from '@prisma/client';
 import { z } from 'zod';
+import { env } from '../config/env';
 import { prisma } from '../config/prisma';
+import { AppError } from '../middleware/errorHandler';
 import { requireAdmin, requireAuth } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { loginAgent } from '../services/authService';
 import {
   createDataBundle,
   grantTrialExtension,
@@ -16,6 +21,75 @@ import {
 import { listAdminSettings, upsertAdminSettings } from '../services/settingsService';
 
 const router = Router();
+
+const adminLoginSchema = z.object({
+  email: z.string().min(3).max(255).optional(),
+  identifier: z.string().min(3).max(255).optional(),
+  password: z.string().min(1).max(128),
+});
+
+router.post('/login', validate(adminLoginSchema), async (req, res, next) => {
+  try {
+    const identifier = String(req.body.email ?? req.body.identifier ?? '').trim();
+    const password = String(req.body.password ?? '');
+    if (!identifier) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Admin email is required');
+    }
+
+    // Allow env-configured admin credentials (auto-provisions ADMIN user in DB on first login)
+    if (
+      env.ADMIN_PASSWORD &&
+      identifier.toLowerCase() === env.ADMIN_EMAIL.toLowerCase() &&
+      password === env.ADMIN_PASSWORD
+    ) {
+      const passwordHash = await bcrypt.hash(password, 10);
+      const user = await prisma.user.upsert({
+        where: { email: env.ADMIN_EMAIL.toLowerCase() },
+        update: {
+          role: UserRole.ADMIN,
+          accountStatus: AccountStatus.ACTIVE,
+          passwordHash,
+        },
+        create: {
+          fullName: env.ADMIN_NAME,
+          email: env.ADMIN_EMAIL.toLowerCase(),
+          phone: env.ADMIN_PHONE,
+          passwordHash,
+          role: UserRole.ADMIN,
+          accountStatus: AccountStatus.ACTIVE,
+          trialConsumed: true,
+          entitlement: {
+            create: {
+              status: 'ACTIVE',
+              paidUntil: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000),
+            },
+          },
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          accountStatus: true,
+        },
+      });
+      const token = jwt.sign({ sub: user.id, role: user.role }, env.JWT_SECRET, {
+        expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+      });
+      res.status(200).json({ token, user });
+      return;
+    }
+
+    const result = await loginAgent({ identifier, password });
+    if (result.user.role !== UserRole.ADMIN) {
+      throw new AppError(403, 'FORBIDDEN', 'This account does not have ADMIN privileges.');
+    }
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.use(requireAuth, requireAdmin);
 

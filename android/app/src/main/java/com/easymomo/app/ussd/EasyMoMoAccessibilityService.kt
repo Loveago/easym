@@ -129,11 +129,11 @@ class EasyMoMoAccessibilityService : AccessibilityService() {
     }
 
     fun sendUssdReply(reply: String): Boolean {
-        for (attempt in 1..5) {
+        for (attempt in 1..8) {
             val root = findUssdWindowRoot()
             if (root == null) {
                 UssdDiagnosticLog.log("ACCESSIBILITY", "sendUssdReply attempt $attempt: no active USSD window")
-                if (attempt < 5) Thread.sleep(90L)
+                if (attempt < 8) Thread.sleep(100L)
                 continue
             }
             root.refresh()
@@ -141,7 +141,7 @@ class EasyMoMoAccessibilityService : AccessibilityService() {
             val inputNode = findEditableNode(root)
             if (inputNode == null) {
                 UssdDiagnosticLog.log("ACCESSIBILITY", "sendUssdReply attempt $attempt: no editable input in ${root.packageName}")
-                if (attempt < 5) Thread.sleep(90L)
+                if (attempt < 8) Thread.sleep(100L)
                 continue
             }
 
@@ -153,7 +153,7 @@ class EasyMoMoAccessibilityService : AccessibilityService() {
             val setOk = inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             if (!setOk) {
                 UssdDiagnosticLog.log("ACCESSIBILITY", "sendUssdReply attempt $attempt: ACTION_SET_TEXT failed")
-                if (attempt < 5) Thread.sleep(90L)
+                if (attempt < 8) Thread.sleep(100L)
                 continue
             }
 
@@ -162,7 +162,7 @@ class EasyMoMoAccessibilityService : AccessibilityService() {
             val sendButton = findSendButton(refreshedRoot) ?: findFallbackPositiveButton(refreshedRoot)
             if (sendButton == null) {
                 UssdDiagnosticLog.log("ACCESSIBILITY", "sendUssdReply attempt $attempt: no Send/OK button found")
-                if (attempt < 5) Thread.sleep(90L)
+                if (attempt < 8) Thread.sleep(100L)
                 continue
             }
 
@@ -172,7 +172,7 @@ class EasyMoMoAccessibilityService : AccessibilityService() {
                 lastSubmittedAtMs = System.currentTimeMillis()
                 return true
             }
-            if (attempt < 5) Thread.sleep(90L)
+            if (attempt < 8) Thread.sleep(100L)
         }
         return false
     }

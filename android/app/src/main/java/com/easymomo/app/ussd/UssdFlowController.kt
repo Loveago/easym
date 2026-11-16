@@ -189,6 +189,15 @@ class UssdFlowController(
                     UssdDiagnosticLog.log("MATCH", "Ignored non-advancing prompt at ${step.id}: ${observedNorm.take(40)}")
                     return
                 }
+                val isVariableStep = step.action == StepAction.SEND_VARIABLE ||
+                    step.responseType == ResponseType.TRANSACTION_CUSTOMER_PHONE ||
+                    step.responseType == ResponseType.TRANSACTION_AMOUNT
+                val looksLikeMenu = observedNorm.contains("1)") || observedNorm.contains("1.") ||
+                    observedNorm.contains("2)") || observedNorm.contains("2.")
+                if (isVariableStep && looksLikeMenu) {
+                    UssdDiagnosticLog.log("MATCH", "Ignored menu-like prompt while waiting for input at ${step.id}")
+                    return
+                }
                 UssdDiagnosticLog.log("MATCH", "Proceeding with configured step ${step.id} on prompt")
                 handleMatchedStep(sessionId, profile, step, vars, observedRaw)
             }

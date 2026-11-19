@@ -20,10 +20,10 @@ enum class NetworkType(
 enum class TransactionType(val code: String, val displayName: String) {
     CASH_IN("CASH_IN", "Cash In"),
     CASH_OUT("CASH_OUT", "Cash Out"),
-    AIRTIME("AIRTIME", "Airtime"),
-    DATA("DATA", "Data Bundle"),
+    AIRTIME("AIRTIME", "MoMo Airtime"),
+    DATA("DATA", "MoMo Data"),
     EVD_AIRTIME("EVD_AIRTIME", "EVD Airtime"),
-    EVD_BUNDLE("EVD_BUNDLE", "EVD Bundle"),
+    EVD_BUNDLE("EVD_BUNDLE", "EVD Data"),
     GIG("GIG", "Gig Purchase"),
     MERCHANT_PAY("MERCHANT_PAY", "Pay to Merchant"),
     CUSTOM_USSD("CUSTOM_USSD", "Custom USSD"),
@@ -74,6 +74,7 @@ enum class SubscriptionStatus(val code: String) {
     TRIAL("TRIAL"),
     ACTIVE("ACTIVE"),
     EXPIRED("EXPIRED"),
+    CANCELLED("CANCELLED"),
     NONE("NONE");
 
     val hasPaidAccess: Boolean
@@ -93,13 +94,61 @@ data class SubscriptionInfo(
     val paidUntil: String? = null,
     val currentPlanId: String? = null,
     val currentPlanName: String? = null,
-    val remainingDays: Int = 0
-)
+    val remainingDays: Int = 0,
+    val recurringAuthorized: Boolean = false
+) {
+    fun effectiveStatus(nowMs: Long = System.currentTimeMillis()): SubscriptionStatus = when (status) {
+        SubscriptionStatus.TRIAL -> {
+            val exp = parseIsoEpochMs(trialExpiresAt)
+            if (exp != null) {
+                if (nowMs >= exp) SubscriptionStatus.EXPIRED else SubscriptionStatus.TRIAL
+            } else if (remainingDays <= 0) SubscriptionStatus.EXPIRED else SubscriptionStatus.TRIAL
+        }
+        SubscriptionStatus.ACTIVE -> {
+            val exp = parseIsoEpochMs(paidUntil)
+            if (exp != null) {
+                if (nowMs >= exp) SubscriptionStatus.EXPIRED else SubscriptionStatus.ACTIVE
+            } else if (remainingDays <= 0) SubscriptionStatus.EXPIRED else SubscriptionStatus.ACTIVE
+        }
+        else -> status
+    }
+
+    fun hasActiveAccess(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val eff = effectiveStatus(nowMs)
+        return eff == SubscriptionStatus.TRIAL || eff == SubscriptionStatus.ACTIVE
+    }
+
+    fun effectiveRemainingDays(nowMs: Long = System.currentTimeMillis()): Int {
+        if (!hasActiveAccess(nowMs)) return 0
+        val exp = when (effectiveStatus(nowMs)) {
+            SubscriptionStatus.TRIAL -> parseIsoEpochMs(trialExpiresAt)
+            SubscriptionStatus.ACTIVE -> parseIsoEpochMs(paidUntil)
+            else -> null
+        }
+        return if (exp != null) {
+            kotlin.math.ceil((exp - nowMs).coerceAtLeast(0L).toDouble() / MS_PER_DAY.toDouble())
+                .toInt().coerceAtLeast(0)
+        } else {
+            remainingDays.coerceAtLeast(0)
+        }
+    }
+
+    companion object {
+        const val DEFAULT_TRIAL_DAYS = 15
+        private const val MS_PER_DAY = 24L * 60L * 60L * 1000L
+
+        private fun parseIsoEpochMs(iso: String?): Long? {
+            if (iso.isNullOrBlank()) return null
+            return runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
+        }
+    }
+}
 
 data class AgentUser(
     val id: String,
     val fullName: String,
     val email: String,
     val phone: String,
-    val accountStatus: String = "ACTIVE"
+    val accountStatus: String = "ACTIVE",
+    val createdAt: String? = null
 )

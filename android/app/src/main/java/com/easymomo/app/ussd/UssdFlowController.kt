@@ -34,10 +34,12 @@ class UssdFlowController(
     private var currentStep: UssdFlowStep? = null
     private var lastSubmittedStepId: String? = null
     private var lastSubmittedPromptNormalized: String? = null
-    private val submittedPromptsHistory = mutableSetOf<String>()
+    private var lastSubmittedVariable: String? = null
+    private val menuOptionLineRegex = Regex("""(?:^|\s)[12](?:\)|(?!\d)\.)\s*\S""")
 
     val sessionState = sessionManager.state
 
+    @Synchronized
     fun startFlow(
         transactionLocalId: String,
         profile: UssdFlowProfile,
@@ -51,13 +53,15 @@ class UssdFlowController(
         }
 
         val sessionId = sessionManager.startSession(transactionLocalId, profile.flowId)
-            ?: return Result.failure(IllegalStateException("Another USSD session is already active"))
+        if (sessionId == null) {
+            return Result.failure(IllegalStateException("Another USSD session is already active"))
+        }
 
         activeProfile = profile
         activeVariables = variables
         lastSubmittedStepId = null
         lastSubmittedPromptNormalized = null
-        submittedPromptsHistory.clear()
+        lastSubmittedVariable = null
         val startStep = profile.steps.firstOrNull { it.type == StepType.INITIATE_USSD }
             ?: profile.steps.firstOrNull()
 
@@ -77,6 +81,7 @@ class UssdFlowController(
         return Result.success(sessionId)
     }
 
+    @Synchronized
     fun onPromptObserved(observedRaw: String) {
         val sessionId = sessionManager.getActiveSessionId() ?: return
         val profile = activeProfile ?: return
@@ -84,27 +89,43 @@ class UssdFlowController(
         val vars = activeVariables ?: return
         val observedNorm = promptMatcher.normalize(observedRaw)
 
-        // Prevent duplicate/stale submissions if any already-submitted prompt fires again after step advancement
-        if ((lastSubmittedPromptNormalized != null && observedNorm == lastSubmittedPromptNormalized) ||
-            observedNorm in submittedPromptsHistory
-        ) {
-            UssdDiagnosticLog.log("MATCH", "Duplicate/stale prompt ignored (already submitted $lastSubmittedStepId)")
-            return
+        // Prevent duplicate/stale submissions if the previous step's prompt re-fires after advancement,
+        // while allowing identical consecutive prompts ONLY when both steps submit the same variable (e.g., number + confirm number).
+        if (lastSubmittedPromptNormalized != null && observedNorm == lastSubmittedPromptNormalized) {
+            val stepVar = resolveStepVariableName(step)
+            val matchesNewStep = step.id != lastSubmittedStepId &&
+                lastSubmittedVariable != null &&
+                stepVar == lastSubmittedVariable &&
+                promptMatcher.matchStep(observedRaw, step) is UssdPromptMatcher.MatchResult.Matched
+            if (!matchesNewStep) {
+                UssdDiagnosticLog.log("MATCH", "Duplicate/stale prompt ignored (already submitted $lastSubmittedStepId)")
+                return
+            }
         }
 
         // If currently paused for manual PIN, resume only when a subsequent non-PIN prompt arrives
-        if (sessionManager.state.value is UssdSessionState.PausedForPinAuthorization) {
+        val currentState = sessionManager.state.value
+        if (currentState is UssdSessionState.PausedForPinAuthorization) {
             val quickMatch = promptMatcher.matchStep(observedRaw, step)
             if (quickMatch is UssdPromptMatcher.MatchResult.TransientLoading) return
-            if (confirmationHandler.isPinKeywordPrompt(observedRaw)) return
+            if (observedNorm == promptMatcher.normalize(currentState.observedPrompt)) return
+            if (confirmationHandler.requiresPinAuthorization(observedRaw, step)) return
             resumeAfterManualPin(observedRaw)
             return
         }
 
         // If currently paused for manual operational ID, resume only when the next prompt is detected
-        if (sessionManager.state.value is UssdSessionState.PausedForOperationalId) {
+        if (currentState is UssdSessionState.PausedForOperationalId) {
             val quickMatch = promptMatcher.matchStep(observedRaw, step)
             if (quickMatch is UssdPromptMatcher.MatchResult.TransientLoading) return
+            if (observedNorm == promptMatcher.normalize(currentState.observedPrompt)) return
+            val nextStep = step.nextStepId?.let { id -> profile.steps.firstOrNull { it.id == id } }
+            val isNextPin = confirmationHandler.isPinKeywordPrompt(observedRaw) ||
+                (nextStep != null && confirmationHandler.requiresPinAuthorization(observedRaw, nextStep))
+            if (isNextPin) {
+                resumeAfterManualOperationalId(observedRaw)
+                return
+            }
             if (quickMatch is UssdPromptMatcher.MatchResult.Matched) return
             resumeAfterManualOperationalId(observedRaw)
             return
@@ -119,20 +140,17 @@ class UssdFlowController(
 
         // 2. Check if provider is asking for PIN/OTP authorization (never automate PIN)
         if (confirmationHandler.requiresPinAuthorization(observedRaw, step)) {
-            if (step.type != StepType.REQUIRE_AUTHORIZATION && step.optional &&
+            if (!isPinStep(step) && step.optional &&
                 tryAdvanceAcrossOptionalSteps(sessionId, profile, step, vars, observedRaw)
             ) {
                 return
             }
-            if (step.action == StepAction.WAIT_FOR_PROMPT || step.responseType == ResponseType.WAIT_FOR_PROMPT) {
-                val pinStep = step.nextStepId?.let { id -> profile.steps.firstOrNull { it.id == id } }
-                if (pinStep != null && (pinStep.action == StepAction.PAUSE_FOR_PIN || pinStep.responseType == ResponseType.MANUAL_SENSITIVE_INPUT)) {
-                    currentStep = pinStep
-                }
-            }
-            UssdDiagnosticLog.log("STATE", "Paused for agent PIN at step ${currentStep?.id ?: step.id}")
-            sessionManager.updateState(
-                UssdSessionState.PausedForPinAuthorization(sessionId, currentStep?.id ?: step.id, observedRaw)
+            val targetPinStep = findForwardPinStep(profile, step) ?: step
+            currentStep = targetPinStep
+            UssdDiagnosticLog.log("STATE", "Paused for agent PIN at step ${targetPinStep.id}")
+            sessionManager.updateStep(
+                targetPinStep.id,
+                UssdSessionState.PausedForPinAuthorization(sessionId, targetPinStep.id, observedRaw)
             )
             return
         }
@@ -185,15 +203,25 @@ class UssdFlowController(
                 if (step.optional && tryAdvanceAcrossOptionalSteps(sessionId, profile, step, vars, observedRaw)) {
                     return
                 }
-                if (observedNorm.length < 6 || observedNorm.contains("invalid") || observedNorm.contains("try again")) {
+                if (observedNorm.contains("invalid") || observedNorm.contains("try again")) {
+                    UssdDiagnosticLog.log("MATCH", "Provider reported invalid/retry prompt at ${step.id}: ${observedNorm.take(40)}")
+                    sessionManager.endSession(
+                        UssdSessionState.ManualInterventionRequired(
+                            sessionId,
+                            "Network rejected input (${observedRaw.trim()}). Please complete or retry manually in the USSD dialog.",
+                            observedRaw
+                        )
+                    )
+                    return
+                }
+                if (observedNorm.length < 3 || !observedNorm.any { it.isLetter() }) {
                     UssdDiagnosticLog.log("MATCH", "Ignored non-advancing prompt at ${step.id}: ${observedNorm.take(40)}")
                     return
                 }
                 val isVariableStep = step.action == StepAction.SEND_VARIABLE ||
                     step.responseType == ResponseType.TRANSACTION_CUSTOMER_PHONE ||
                     step.responseType == ResponseType.TRANSACTION_AMOUNT
-                val looksLikeMenu = observedNorm.contains("1)") || observedNorm.contains("1.") ||
-                    observedNorm.contains("2)") || observedNorm.contains("2.")
+                val looksLikeMenu = menuOptionLineRegex.containsMatchIn(observedNorm)
                 if (isVariableStep && looksLikeMenu) {
                     UssdDiagnosticLog.log("MATCH", "Ignored menu-like prompt while waiting for input at ${step.id}")
                     return
@@ -218,10 +246,12 @@ class UssdFlowController(
             val candidate = profile.steps.firstOrNull { it.id == nextId } ?: break
 
             if (confirmationHandler.requiresPinAuthorization(observedRaw, candidate)) {
-                UssdDiagnosticLog.log("MATCH", "Skipped optional ${fromStep.id} -> PIN at ${candidate.id}")
-                currentStep = candidate
-                sessionManager.updateState(
-                    UssdSessionState.PausedForPinAuthorization(sessionId, candidate.id, observedRaw)
+                val targetPinStep = findForwardPinStep(profile, candidate) ?: candidate
+                UssdDiagnosticLog.log("MATCH", "Skipped optional ${fromStep.id} -> PIN at ${targetPinStep.id}")
+                currentStep = targetPinStep
+                sessionManager.updateStep(
+                    targetPinStep.id,
+                    UssdSessionState.PausedForPinAuthorization(sessionId, targetPinStep.id, observedRaw)
                 )
                 return true
             }
@@ -261,7 +291,7 @@ class UssdFlowController(
             ResponseType.MANUAL_SENSITIVE_INPUT -> StepAction.PAUSE_FOR_PIN
             ResponseType.WAIT_FOR_PROMPT -> StepAction.WAIT_FOR_PROMPT
             ResponseType.TERMINAL_RESULT -> StepAction.COMPLETE
-            null -> step.action
+            null -> (step.action as StepAction?) ?: StepAction.COMPLETE
         }
         when (effectiveAction) {
             StepAction.SEND_MENU_OPTION -> {
@@ -272,14 +302,18 @@ class UssdFlowController(
                     )
                     return
                 }
-                sendAndAdvance(sessionId, profile, step, option, isFinancialInput = false, observedRaw = observedRaw)
+                sendAndAdvance(
+                    sessionId = sessionId,
+                    profile = profile,
+                    step = step,
+                    reply = option,
+                    isFinancialInput = false,
+                    observedRaw = observedRaw,
+                    submittedVariable = null
+                )
             }
             StepAction.SEND_VARIABLE -> {
-                val varName = when (step.responseType) {
-                    ResponseType.TRANSACTION_CUSTOMER_PHONE -> step.variable ?: "customer_phone"
-                    ResponseType.TRANSACTION_AMOUNT -> step.variable ?: "amount"
-                    else -> step.variable ?: ""
-                }
+                val varName = resolveStepVariableName(step) ?: ""
                 when (val resolved = inputHandler.resolveVariable(varName, vars)) {
                     is UssdInputHandler.ValidationResult.Invalid -> {
                         sessionManager.endSession(
@@ -288,7 +322,15 @@ class UssdFlowController(
                     }
                     is UssdInputHandler.ValidationResult.Valid -> {
                         val isFinancial = varName == "amount" || varName == "customer_phone" || varName == "recipient_phone"
-                        sendAndAdvance(sessionId, profile, step, resolved.value, isFinancialInput = isFinancial, observedRaw = observedRaw)
+                        sendAndAdvance(
+                            sessionId = sessionId,
+                            profile = profile,
+                            step = step,
+                            reply = resolved.value,
+                            isFinancialInput = isFinancial,
+                            observedRaw = observedRaw,
+                            submittedVariable = varName
+                        )
                     }
                 }
             }
@@ -303,7 +345,15 @@ class UssdFlowController(
                     when (val resolved = inputHandler.resolveVariable("operational_id", vars)) {
                         is UssdInputHandler.ValidationResult.Valid -> {
                             UssdDiagnosticLog.log("STATE", "Auto-entering saved Telecel operational ID at step ${step.id}")
-                            sendAndAdvance(sessionId, profile, step, resolved.value, isFinancialInput = false, observedRaw = observedRaw)
+                            sendAndAdvance(
+                                sessionId = sessionId,
+                                profile = profile,
+                                step = step,
+                                reply = resolved.value,
+                                isFinancialInput = false,
+                                observedRaw = observedRaw,
+                                submittedVariable = null
+                            )
                             return
                         }
                         is UssdInputHandler.ValidationResult.Invalid -> {
@@ -348,14 +398,16 @@ class UssdFlowController(
         }
     }
 
+    @Synchronized
     fun confirmPendingStep() {
         val sessionId = sessionManager.getActiveSessionId() ?: return
         val profile = activeProfile ?: return
         val step = currentStep ?: return
         val reply = step.menuOption ?: "1"
-        sendAndAdvance(sessionId, profile, step, reply, isFinancialInput = true)
+        sendAndAdvance(sessionId, profile, step, reply, isFinancialInput = true, submittedVariable = null)
     }
 
+    @Synchronized
     fun resumeAfterManualOperationalId(nextObservedPrompt: String) {
         val sessionId = sessionManager.getActiveSessionId() ?: return
         val profile = activeProfile ?: return
@@ -374,6 +426,7 @@ class UssdFlowController(
         }
     }
 
+    @Synchronized
     fun resumeAfterManualPin(nextObservedPrompt: String) {
         val sessionId = sessionManager.getActiveSessionId() ?: return
         val profile = activeProfile ?: return
@@ -392,28 +445,59 @@ class UssdFlowController(
         }
     }
 
+    @Synchronized
     fun cancelSession() {
         val sessionId = sessionManager.getActiveSessionId() ?: return
         val decision = recoveryManager.onUserCancelled(sessionManager.hasSentFinancialInput())
-        activeProfile = null
-        activeVariables = null
-        currentStep = null
-        lastSubmittedStepId = null
-        lastSubmittedPromptNormalized = null
-        submittedPromptsHistory.clear()
+        clearLocalState()
         sessionManager.endSession(UssdSessionState.Cancelled(sessionId, decision.userMessage))
     }
 
+    @Synchronized
     fun onTimeout() {
         val sessionId = sessionManager.getActiveSessionId() ?: return
         val lastStep = currentStep?.id
+        clearLocalState()
+        sessionManager.endSession(UssdSessionState.TimedOut(sessionId, lastStep))
+    }
+
+    @Synchronized
+    fun resetSession() {
+        clearLocalState()
+        sessionManager.resetToIdle()
+    }
+
+    private fun clearLocalState() {
         activeProfile = null
         activeVariables = null
         currentStep = null
         lastSubmittedStepId = null
         lastSubmittedPromptNormalized = null
-        submittedPromptsHistory.clear()
-        sessionManager.endSession(UssdSessionState.TimedOut(sessionId, lastStep))
+        lastSubmittedVariable = null
+    }
+
+    private fun isPinStep(step: UssdFlowStep): Boolean {
+        return step.type == StepType.REQUIRE_AUTHORIZATION ||
+            step.action == StepAction.PAUSE_FOR_PIN ||
+            step.responseType == ResponseType.MANUAL_SENSITIVE_INPUT
+    }
+
+    private fun findForwardPinStep(profile: UssdFlowProfile, fromStep: UssdFlowStep): UssdFlowStep? {
+        if (isPinStep(fromStep)) return fromStep
+        val startIndex = profile.steps.indexOfFirst { it.id == fromStep.id }.coerceAtLeast(0)
+        return profile.steps.drop(startIndex).firstOrNull { isPinStep(it) }
+    }
+
+    private fun resolveStepVariableName(step: UssdFlowStep): String? {
+        val isVarStep = step.action == StepAction.SEND_VARIABLE ||
+            step.responseType == ResponseType.TRANSACTION_CUSTOMER_PHONE ||
+            step.responseType == ResponseType.TRANSACTION_AMOUNT
+        if (!isVarStep) return null
+        return when (step.responseType) {
+            ResponseType.TRANSACTION_CUSTOMER_PHONE -> step.variable ?: "customer_phone"
+            ResponseType.TRANSACTION_AMOUNT -> step.variable ?: "amount"
+            else -> step.variable?.takeIf { it.isNotBlank() }
+        }
     }
 
     private fun sendAndAdvance(
@@ -422,7 +506,8 @@ class UssdFlowController(
         step: UssdFlowStep,
         reply: String,
         isFinancialInput: Boolean,
-        observedRaw: String? = null
+        observedRaw: String? = null,
+        submittedVariable: String? = null
     ) {
         if (isFinancialInput) {
             sessionManager.markFinancialInputSent()
@@ -441,7 +526,7 @@ class UssdFlowController(
         }
         lastSubmittedStepId = step.id
         lastSubmittedPromptNormalized = observedRaw?.let { promptMatcher.normalize(it) }
-        lastSubmittedPromptNormalized?.let { submittedPromptsHistory.add(it) }
+        lastSubmittedVariable = submittedVariable
         UssdDiagnosticLog.log("SEND", "Auto-submitted step ${step.id} (${if (isFinancialInput) "tx-field" else "menu"})")
         val next = step.nextStepId?.let { id -> profile.steps.firstOrNull { it.id == id } }
         if (next != null) {
@@ -449,6 +534,17 @@ class UssdFlowController(
             sessionManager.updateStep(
                 next.id,
                 UssdSessionState.AwaitingPrompt(sessionId, next.id, "Waiting for next prompt...")
+            )
+        } else {
+            UssdDiagnosticLog.log("STATE", "Flow ${profile.flowId} ended after step ${step.id}; handing off remaining prompts to manual entry")
+            completeSession(
+                sessionId,
+                UssdOutcome(
+                    category = OutcomeCategory.PENDING,
+                    rawResponse = "",
+                    providerReference = null,
+                    message = "Automated steps complete. Enter the remaining details manually in the USSD dialog."
+                )
             )
         }
     }

@@ -186,28 +186,28 @@ fun TrialSubscriptionBanner(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val (bg, fg, text) = when (subscription.status) {
+    val effectiveStatus = subscription.effectiveStatus()
+    val effectiveDays = subscription.effectiveRemainingDays()
+    val (bg, fg, text) = when (effectiveStatus) {
         SubscriptionStatus.TRIAL -> {
             val label = when {
-                subscription.remainingDays <= 0 -> "Free Trial ends today • Tap to subscribe"
-                subscription.remainingDays == 1 -> "Free Trial Active • 1 day remaining"
-                else -> "Free Trial Active • ${subscription.remainingDays} days remaining"
+                effectiveDays <= 0 -> "Free Trial ends today"
+                effectiveDays == 1 -> "Free Trial Active • 1 day remaining"
+                else -> "Free Trial Active • $effectiveDays days remaining"
             }
             Triple(EmeraldPrimaryContainer, OnEmeraldPrimaryContainer, label)
         }
-        SubscriptionStatus.ACTIVE -> {
-            Triple(
-                StatusSuccessBg,
-                StatusSuccess,
-                "${subscription.currentPlanName ?: "Pro Plan"} Active • ${subscription.remainingDays}d left"
-            )
-        }
-        SubscriptionStatus.EXPIRED -> {
-            Triple(StatusErrorBg, StatusError, "Subscription Expired • Renew to process transactions")
-        }
-        SubscriptionStatus.NONE -> {
-            Triple(StatusWarningBg, StatusWarning, "Activate subscription or start 7-day free trial")
-        }
+        SubscriptionStatus.ACTIVE -> Triple(
+            StatusSuccessBg,
+            StatusSuccess,
+            "${subscription.currentPlanName ?: "Active Plan"} • ${effectiveDays}d left"
+        )
+        SubscriptionStatus.EXPIRED ->
+            Triple(StatusErrorBg, StatusError, "Subscription Expired • Renew to continue")
+        SubscriptionStatus.CANCELLED ->
+            Triple(StatusErrorBg, StatusError, "Subscription Cancelled • Subscribe to continue")
+        SubscriptionStatus.NONE ->
+            Triple(StatusWarningBg, StatusWarning, "No Active Subscription • Subscribe to unlock features")
     }
 
     Row(
@@ -230,7 +230,7 @@ fun TrialSubscriptionBanner(
             modifier = Modifier.weight(1f)
         )
         Text(
-            text = if (subscription.status == SubscriptionStatus.EXPIRED) "RENEW" else "MANAGE",
+            text = if (!subscription.hasActiveAccess()) "SUBSCRIBE" else "MANAGE",
             color = fg,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold

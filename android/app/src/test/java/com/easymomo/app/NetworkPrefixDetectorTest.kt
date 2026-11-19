@@ -11,9 +11,10 @@ class NetworkPrefixDetectorTest {
 
     @Test
     fun `detects MTN prefixes accurately`() {
-        listOf("0244123456", "0541234567", "0559876543", "0591112222", "0530001111").forEach { num ->
+        listOf("0244123456", "0251234567", "0541234567", "0559876543", "0591112222", "0530001111").forEach { num ->
             assertEquals(NetworkType.MTN, NetworkPrefixDetector.detectNetwork(num))
         }
+        assertEquals(NetworkType.MTN, NetworkPrefixDetector.detectNetwork("+233251234567"))
     }
 
     @Test

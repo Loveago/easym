@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { NetworkType } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
+import { requireActiveEntitlement } from '../middleware/entitlement';
 import { validate } from '../middleware/validate';
 import {
   getActiveDataBundles,
@@ -15,7 +16,7 @@ const networkQuerySchema = z.object({
   network: z.nativeEnum(NetworkType).optional(),
 });
 
-router.get('/ussd-flows', requireAuth, validate(networkQuerySchema, 'query'), async (req, res, next) => {
+router.get('/ussd-flows', requireAuth, requireActiveEntitlement, validate(networkQuerySchema, 'query'), async (req, res, next) => {
   try {
     const flows = await getActiveUssdFlows(req.query.network as NetworkType | undefined);
     res.status(200).json({ flows });
@@ -24,7 +25,7 @@ router.get('/ussd-flows', requireAuth, validate(networkQuerySchema, 'query'), as
   }
 });
 
-router.get('/networks', requireAuth, async (_req, res, next) => {
+router.get('/networks', requireAuth, requireActiveEntitlement, async (_req, res, next) => {
   try {
     const networks = await getNetworkProfiles();
     res.status(200).json({ networks });
@@ -33,7 +34,7 @@ router.get('/networks', requireAuth, async (_req, res, next) => {
   }
 });
 
-router.get('/bundles', requireAuth, validate(networkQuerySchema, 'query'), async (req, res, next) => {
+router.get('/bundles', requireAuth, requireActiveEntitlement, validate(networkQuerySchema, 'query'), async (req, res, next) => {
   try {
     const bundles = await getActiveDataBundles(req.query.network as NetworkType | undefined);
     res.status(200).json({ bundles });

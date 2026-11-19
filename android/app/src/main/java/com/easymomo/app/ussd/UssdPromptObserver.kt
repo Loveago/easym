@@ -22,14 +22,30 @@ object UssdPromptObserver {
         USER_ASSISTED
     }
 
+    enum class UssdWindowEvent {
+        OPENED,
+        CLOSED
+    }
+
     private val _prompts = MutableSharedFlow<ObservedPrompt>(extraBufferCapacity = 16)
     val prompts: SharedFlow<ObservedPrompt> = _prompts.asSharedFlow()
+
+    private val _windowEvents = MutableSharedFlow<UssdWindowEvent>(extraBufferCapacity = 16)
+    val windowEvents: SharedFlow<UssdWindowEvent> = _windowEvents.asSharedFlow()
 
     fun onPromptObserved(rawText: String, source: PromptSource) {
         val cleaned = normalizeObservedText(rawText)
         if (cleaned.isNotBlank()) {
             _prompts.tryEmit(ObservedPrompt(cleaned, source))
         }
+    }
+
+    fun onUssdWindowOpened() {
+        _windowEvents.tryEmit(UssdWindowEvent.OPENED)
+    }
+
+    fun onUssdWindowClosed() {
+        _windowEvents.tryEmit(UssdWindowEvent.CLOSED)
     }
 
     fun normalizeObservedText(raw: String): String {

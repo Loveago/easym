@@ -521,7 +521,7 @@ const ADMIN_JS = `(() => {
             <thead><tr><th>Code</th><th>Name</th><th>Price</th><th>Interval</th><th>Status</th></tr></thead>
             <tbody>
               \${plans.map(p => \`
-                <tr>
+                <tr data-edit-plan='\${esc(JSON.stringify({code:p.code,name:p.name,price:p.price,durationDays:p.durationDays,billingInterval:p.billingInterval,active:p.active}))}' style="cursor:pointer" title="Click to edit plan">
                   <td><strong>\${esc(p.code)}</strong></td>
                   <td>\${esc(p.name)}</td>
                   <td>\${esc(p.currency)} \${Number(p.price).toFixed(2)}</td>
@@ -579,6 +579,19 @@ const ADMIN_JS = `(() => {
         </table>
       </div>
     \`;
+
+    document.querySelectorAll('[data-edit-plan]').forEach((row) => {
+      row.onclick = () => {
+        const p = JSON.parse(row.dataset.editPlan);
+        $('planCode').value = p.code;
+        $('planName').value = p.name;
+        $('planPrice').value = p.price;
+        $('planDays').value = p.durationDays;
+        $('planInterval').value = p.billingInterval;
+        $('planActive').value = String(p.active);
+        showToast('Loaded ' + p.code + ' into editor');
+      };
+    });
 
     $('planForm').onsubmit = async (e) => {
       e.preventDefault();

@@ -1,7 +1,10 @@
 -keepattributes Signature
 -keepattributes *Annotation*
 -keep class com.easymomo.app.data.remote.dto.** { *; }
+-keep class com.easymomo.app.data.local.** { *; }
+-keep class com.easymomo.app.domain.model.** { *; }
 -keep class com.easymomo.app.ussd.model.** { *; }
 -keep class com.easymomo.app.ussd.capture.** { *; }
+-keep class com.easymomo.app.data.repository.TransactionRepository$FlowsWrapper { *; }
 -keepclassmembers class com.easymomo.app.data.repository.** { *; }
 -dontwarn com.google.errorprone.annotations.**

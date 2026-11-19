@@ -2,6 +2,7 @@ package com.easymomo.app.data.local
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -40,10 +41,35 @@ data class AgentSettings(
 )
 
 /**
+ * Contract for reading and writing SIM preferences, enabling unit testing without DataStore.
+ */
+interface SimSelectionStore {
+    val allFeatureSelectionsFlow: Flow<Map<Pair<NetworkType, TransactionType>, SavedSimSelection>>
+    val telecelOperationalIdFlow: Flow<String>
+    val agentSettingsFlow: Flow<AgentSettings>
+
+    suspend fun getSelection(network: NetworkType): SavedSimSelection?
+    suspend fun saveSelection(selection: SavedSimSelection)
+    suspend fun clearSelection(network: NetworkType)
+    suspend fun getFeatureSelection(network: NetworkType, type: TransactionType): SavedSimSelection?
+    suspend fun saveFeatureSelection(type: TransactionType, selection: SavedSimSelection)
+    suspend fun clearFeatureSelection(network: NetworkType, type: TransactionType)
+    suspend fun saveFeatureSelectionsForNetwork(types: List<TransactionType>, selection: SavedSimSelection)
+    suspend fun clearFeatureSelectionsForNetwork(network: NetworkType, types: List<TransactionType>)
+    suspend fun saveAllSimConfiguration(
+        networkSelections: Map<NetworkType, SavedSimSelection?>,
+        featureSelections: Map<Pair<NetworkType, TransactionType>, SavedSimSelection?>
+    )
+    suspend fun updateAgentSettings(transform: (AgentSettings) -> AgentSettings)
+    suspend fun getTelecelOperationalId(): String
+    suspend fun saveTelecelOperationalId(operationalId: String)
+}
+
+/**
  * Persists per-network SIM preferences using Jetpack DataStore.
  * Retained across app restarts, logouts, and USSD configuration migrations.
  */
-class SimPreferencesStore(private val context: Context) {
+class SimPreferencesStore(private val context: Context) : SimSelectionStore {
 
     private fun subIdKey(net: NetworkType) = intPreferencesKey("sim_${net.name}_sub_id")
     private fun slotKey(net: NetworkType) = intPreferencesKey("sim_${net.name}_slot")
@@ -75,11 +101,11 @@ class SimPreferencesStore(private val context: Context) {
             }
         }
 
-    suspend fun getSelection(network: NetworkType): SavedSimSelection? {
+    override suspend fun getSelection(network: NetworkType): SavedSimSelection? {
         return allSelectionsFlow.first()[network]
     }
 
-    suspend fun saveSelection(selection: SavedSimSelection) {
+    override suspend fun saveSelection(selection: SavedSimSelection) {
         context.simPreferencesDataStore.edit { prefs ->
             prefs[subIdKey(selection.network)] = selection.subscriptionId
             prefs[slotKey(selection.network)] = selection.slotIndex
@@ -102,7 +128,7 @@ class SimPreferencesStore(private val context: Context) {
     private val lastCustomerSyncErrorKey = stringPreferencesKey("customer_sync_last_error")
     private val lastCustomerSyncUserIdKey = stringPreferencesKey("customer_sync_last_user_id")
 
-    val agentSettingsFlow: Flow<AgentSettings> =
+    override val agentSettingsFlow: Flow<AgentSettings> =
         context.simPreferencesDataStore.data.map { prefs ->
             AgentSettings(
                 defaultNetworkMode = prefs[defaultNetworkModeKey] ?: "ASK",
@@ -115,7 +141,7 @@ class SimPreferencesStore(private val context: Context) {
             )
         }
 
-    suspend fun updateAgentSettings(transform: (AgentSettings) -> AgentSettings) {
+    override suspend fun updateAgentSettings(transform: (AgentSettings) -> AgentSettings) {
         context.simPreferencesDataStore.edit { prefs ->
             val current = AgentSettings(
                 defaultNetworkMode = prefs[defaultNetworkModeKey] ?: "ASK",
@@ -165,16 +191,16 @@ class SimPreferencesStore(private val context: Context) {
         }
     }
 
-    val telecelOperationalIdFlow: Flow<String> =
+    override val telecelOperationalIdFlow: Flow<String> =
         context.simPreferencesDataStore.data.map { prefs ->
             prefs[telecelOperationalIdKey].orEmpty()
         }
 
-    suspend fun getTelecelOperationalId(): String {
+    override suspend fun getTelecelOperationalId(): String {
         return telecelOperationalIdFlow.first()
     }
 
-    suspend fun saveTelecelOperationalId(operationalId: String) {
+    override suspend fun saveTelecelOperationalId(operationalId: String) {
         context.simPreferencesDataStore.edit { prefs ->
             val trimmed = operationalId.trim()
             if (trimmed.isEmpty()) {
@@ -185,7 +211,7 @@ class SimPreferencesStore(private val context: Context) {
         }
     }
 
-    suspend fun clearSelection(network: NetworkType) {
+    override suspend fun clearSelection(network: NetworkType) {
         context.simPreferencesDataStore.edit { prefs ->
             prefs.remove(subIdKey(network))
             prefs.remove(slotKey(network))
@@ -209,7 +235,7 @@ class SimPreferencesStore(private val context: Context) {
     private fun featureEsimKey(net: NetworkType, type: TransactionType) =
         booleanPreferencesKey("sim_${net.name}_${type.name}_esim")
 
-    val allFeatureSelectionsFlow: Flow<Map<Pair<NetworkType, TransactionType>, SavedSimSelection>> =
+    override val allFeatureSelectionsFlow: Flow<Map<Pair<NetworkType, TransactionType>, SavedSimSelection>> =
         context.simPreferencesDataStore.data.map { prefs ->
             buildMap {
                 SUPPORTED_NETWORKS.forEach { net ->
@@ -234,30 +260,105 @@ class SimPreferencesStore(private val context: Context) {
             }
         }
 
-    suspend fun getFeatureSelection(network: NetworkType, type: TransactionType): SavedSimSelection? {
+    override suspend fun getFeatureSelection(network: NetworkType, type: TransactionType): SavedSimSelection? {
         return allFeatureSelectionsFlow.first()[network to type]
     }
 
-    suspend fun saveFeatureSelection(type: TransactionType, selection: SavedSimSelection) {
+    override suspend fun saveFeatureSelection(type: TransactionType, selection: SavedSimSelection) {
         context.simPreferencesDataStore.edit { prefs ->
-            val net = selection.network
-            prefs[featureSubIdKey(net, type)] = selection.subscriptionId
-            prefs[featureSlotKey(net, type)] = selection.slotIndex
-            prefs[featureCarrierKey(net, type)] = selection.carrierName
-            prefs[featureDisplayKey(net, type)] = selection.displayName
-            prefs[featureIccHashKey(net, type)] = selection.iccIdHash
-            prefs[featureEsimKey(net, type)] = selection.isEmbedded
+            writeFeatureSelection(prefs, selection.network, type, selection)
         }
     }
 
-    suspend fun clearFeatureSelection(network: NetworkType, type: TransactionType) {
+    override suspend fun clearFeatureSelection(network: NetworkType, type: TransactionType) {
         context.simPreferencesDataStore.edit { prefs ->
+            writeFeatureSelection(prefs, network, type, null)
+        }
+    }
+
+    override suspend fun saveFeatureSelectionsForNetwork(
+        types: List<TransactionType>,
+        selection: SavedSimSelection
+    ) {
+        context.simPreferencesDataStore.edit { prefs ->
+            val net = selection.network
+            types.forEach { type ->
+                writeFeatureSelection(prefs, net, type, selection)
+            }
+        }
+    }
+
+    override suspend fun clearFeatureSelectionsForNetwork(
+        network: NetworkType,
+        types: List<TransactionType>
+    ) {
+        context.simPreferencesDataStore.edit { prefs ->
+            types.forEach { type ->
+                writeFeatureSelection(prefs, network, type, null)
+            }
+        }
+    }
+
+    /**
+     * Atomically persists or clears all per-network and per-feature SIM selections
+     * in a single DataStore transaction.
+     */
+    override suspend fun saveAllSimConfiguration(
+        networkSelections: Map<NetworkType, SavedSimSelection?>,
+        featureSelections: Map<Pair<NetworkType, TransactionType>, SavedSimSelection?>
+    ) {
+        context.simPreferencesDataStore.edit { prefs ->
+            networkSelections.forEach { (network, selection) ->
+                writeNetworkSelection(prefs, network, selection)
+            }
+            featureSelections.forEach { (key, selection) ->
+                writeFeatureSelection(prefs, key.first, key.second, selection)
+            }
+        }
+    }
+
+    private fun writeNetworkSelection(
+        prefs: MutablePreferences,
+        network: NetworkType,
+        selection: SavedSimSelection?
+    ) {
+        if (selection == null) {
+            prefs.remove(subIdKey(network))
+            prefs.remove(slotKey(network))
+            prefs.remove(carrierKey(network))
+            prefs.remove(displayKey(network))
+            prefs.remove(iccHashKey(network))
+            prefs.remove(esimKey(network))
+        } else {
+            prefs[subIdKey(network)] = selection.subscriptionId
+            prefs[slotKey(network)] = selection.slotIndex
+            prefs[carrierKey(network)] = selection.carrierName
+            prefs[displayKey(network)] = selection.displayName
+            prefs[iccHashKey(network)] = selection.iccIdHash
+            prefs[esimKey(network)] = selection.isEmbedded
+        }
+    }
+
+    private fun writeFeatureSelection(
+        prefs: MutablePreferences,
+        network: NetworkType,
+        type: TransactionType,
+        selection: SavedSimSelection?
+    ) {
+        if (selection == null) {
             prefs.remove(featureSubIdKey(network, type))
             prefs.remove(featureSlotKey(network, type))
             prefs.remove(featureCarrierKey(network, type))
             prefs.remove(featureDisplayKey(network, type))
             prefs.remove(featureIccHashKey(network, type))
             prefs.remove(featureEsimKey(network, type))
+        } else {
+            prefs[featureSubIdKey(network, type)] = selection.subscriptionId
+            prefs[featureSlotKey(network, type)] = selection.slotIndex
+            prefs[featureCarrierKey(network, type)] = selection.carrierName
+            prefs[featureDisplayKey(network, type)] = selection.displayName
+            prefs[featureIccHashKey(network, type)] = selection.iccIdHash
+            prefs[featureEsimKey(network, type)] = selection.isEmbedded
         }
     }
 
@@ -268,8 +369,26 @@ class SimPreferencesStore(private val context: Context) {
             TransactionType.CASH_OUT,
             TransactionType.DATA,
             TransactionType.AIRTIME,
+            TransactionType.EVD_BUNDLE,
+            TransactionType.EVD_AIRTIME,
+            TransactionType.GIG,
+            TransactionType.MERCHANT_PAY,
+            TransactionType.BALANCE
+        )
+
+        val TELECEL_AT_SIM_FEATURES = listOf(
+            TransactionType.CASH_IN,
+            TransactionType.DATA,
+            TransactionType.AIRTIME,
             TransactionType.GIG,
             TransactionType.BALANCE
         )
+
+        fun featuresForNetwork(network: NetworkType): List<TransactionType> {
+            return when (network) {
+                NetworkType.TELECEL, NetworkType.AT -> TELECEL_AT_SIM_FEATURES
+                else -> CORE_SIM_FEATURES
+            }
+        }
     }
 }

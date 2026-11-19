@@ -11,6 +11,7 @@ class TransactionLifecycleManagerTest {
     @Test
     fun `allows valid Section 17 transitions`() {
         assertTrue(TransactionLifecycleManager.canTransition(TransactionStatus.DRAFT, TransactionStatus.PROCESSING))
+        assertTrue(TransactionLifecycleManager.canTransition(TransactionStatus.PROCESSING, TransactionStatus.AWAITING_VERIFICATION))
         assertTrue(TransactionLifecycleManager.canTransition(TransactionStatus.PROCESSING, TransactionStatus.SUCCESSFUL))
         assertTrue(TransactionLifecycleManager.canTransition(TransactionStatus.PROCESSING, TransactionStatus.UNKNOWN))
         assertTrue(TransactionLifecycleManager.canTransition(TransactionStatus.AWAITING_CUSTOMER, TransactionStatus.AWAITING_VERIFICATION))

@@ -49,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,16 +66,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.easymomo.app.data.local.SavedSimSelection
 import com.easymomo.app.data.local.SimPreferencesStore
 import com.easymomo.app.data.repository.CustomerCloudSyncState
 import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionType
+import com.easymomo.app.ui.auth.AuthViewModel
 import com.easymomo.app.ui.terminal.TerminalViewModel
 import com.easymomo.app.ui.theme.EasyMoMoCard
 import com.easymomo.app.ui.theme.EmeraldPrimary
 import com.easymomo.app.ui.theme.EmeraldPrimaryContainer
 import com.easymomo.app.ui.theme.OnEmeraldPrimaryContainer
-import com.easymomo.app.ui.theme.StatusError
 import com.easymomo.app.ui.theme.StatusError
 import com.easymomo.app.ui.theme.StatusErrorBg
 import com.easymomo.app.ui.theme.StatusSuccess
@@ -87,13 +89,16 @@ import com.easymomo.app.ui.theme.TerminalSurface
 import com.easymomo.app.ui.theme.TextMuted
 import com.easymomo.app.ui.theme.TextPrimary
 import com.easymomo.app.ui.theme.TextSecondary
+import com.easymomo.app.ussd.ActiveSimInfo
 import com.easymomo.app.ussd.CapabilityStatus
 import com.easymomo.app.ussd.SimResolutionStatus
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SimAndDiagnosticsScreen(
+    authViewModel: AuthViewModel,
     terminalViewModel: TerminalViewModel,
+    initialExpandBilling: Boolean = false,
     onRequestPermissions: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenAppSettings: () -> Unit,
@@ -109,25 +114,63 @@ fun SimAndDiagnosticsScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                terminalViewModel.refreshDeviceStatus()
+                terminalViewModel.refreshDeviceStatus(force = true)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    var isSimDraftDirty by remember { mutableStateOf(false) }
+    var draftNetworkSims by remember { mutableStateOf<Map<NetworkType, ActiveSimInfo?>>(emptyMap()) }
+    var draftFeatureSims by remember {
+        mutableStateOf<Map<Pair<NetworkType, TransactionType>, ActiveSimInfo?>>(emptyMap())
+    }
+
+    LaunchedEffect(
+        uiState.activeSims,
+        uiState.simResolutions,
+        uiState.featureSimSelections,
+        isSimDraftDirty
+    ) {
+        if (!isSimDraftDirty) {
+            draftNetworkSims = SimPreferencesStore.SUPPORTED_NETWORKS.associateWith { net ->
+                uiState.simResolutions[net]?.resolvedSim
+            }
+            draftFeatureSims = buildMap {
+                SimPreferencesStore.SUPPORTED_NETWORKS.forEach { net ->
+                    SimPreferencesStore.featuresForNetwork(net).forEach { feature ->
+                        val saved = uiState.featureSimSelections[net to feature]
+                        val matched = if (saved == null) {
+                            null
+                        } else {
+                            uiState.activeSims.firstOrNull { sim ->
+                                sim.subscriptionId == saved.subscriptionId ||
+                                    (saved.iccIdHash.isNotBlank() && sim.iccIdHash == saved.iccIdHash)
+                            }
+                        }
+                        put(net to feature, matched)
+                    }
+                }
+            }
+        }
+    }
+
     Scaffold(
         containerColor = TerminalBackground,
         topBar = {
             TopAppBar(
-                title = { Text("SIM Management & USSD Diagnostics") },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { terminalViewModel.refreshDeviceStatus() }) {
+                    IconButton(onClick = {
+                        terminalViewModel.refreshDeviceStatus(force = true)
+                        authViewModel.loadSubscriptionDetails()
+                    }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Refresh")
                     }
                 },
@@ -143,6 +186,12 @@ fun SimAndDiagnosticsScreen(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // 0. User Profile & Subscription Details
+            UserProfileSubscriptionSection(
+                authViewModel = authViewModel,
+                initialExpandBilling = initialExpandBilling
+            )
+
             // 1. SIM Management — Detected SIMs
             EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -220,15 +269,20 @@ fun SimAndDiagnosticsScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Saved in DataStore across restarts. Dual-SIM devices require explicit assignment per network.",
+                    "Select a SIM for each network, optionally customize Per-Feature SIMs, then tap Save SIM Settings.",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                listOf(NetworkType.MTN, NetworkType.AT, NetworkType.TELECEL).forEach { network ->
+                SimPreferencesStore.SUPPORTED_NETWORKS.forEach { network ->
                     val resolution = uiState.simResolutions[network]
-                    var showFeatureOverrides by remember { mutableStateOf(false) }
+                    val draftNetworkSim = draftNetworkSims[network]
+                    val networkFeatures = remember(network) { SimPreferencesStore.featuresForNetwork(network) }
+                    val overrideCount = networkFeatures.count { feature ->
+                        draftFeatureSims[network to feature] != null
+                    }
+                    var showFeatureOverrides by remember(network) { mutableStateOf(false) }
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -242,12 +296,16 @@ fun SimAndDiagnosticsScreen(
                             )
                             TextButton(onClick = { showFeatureOverrides = !showFeatureOverrides }) {
                                 Text(
-                                    if (showFeatureOverrides) "Hide Feature SIMs" else "Per-Feature SIMs",
+                                    if (showFeatureOverrides) {
+                                        "Hide Feature SIMs"
+                                    } else {
+                                        "Per-Feature SIMs ($overrideCount/${networkFeatures.size})"
+                                    },
                                     style = MaterialTheme.typography.labelSmall
                                 )
                             }
                         }
-                        if (resolution != null) {
+                        if (resolution != null && !isSimDraftDirty) {
                             val isWarning = resolution.status == SimResolutionStatus.SIM_UNAVAILABLE_ATTENTION_REQUIRED ||
                                 resolution.status == SimResolutionStatus.NETWORK_MISMATCH_WARNING ||
                                 resolution.status == SimResolutionStatus.REQUIRES_SELECTION
@@ -257,16 +315,35 @@ fun SimAndDiagnosticsScreen(
                                 color = if (isWarning) StatusWarning else TextSecondary
                             )
                         }
+                        Text(
+                            text = when {
+                                draftNetworkSim != null && overrideCount > 0 ->
+                                    "Ready via ${draftNetworkSim.label} ($overrideCount custom feature override(s))"
+                                draftNetworkSim != null ->
+                                    "All ${networkFeatures.size} operations ready via ${draftNetworkSim.label}"
+                                overrideCount == networkFeatures.size ->
+                                    "All $overrideCount/${networkFeatures.size} feature SIMs assigned"
+                                else ->
+                                    "Select a SIM above to unlock ${network.displayName} operations ($overrideCount/${networkFeatures.size} feature overrides)"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (draftNetworkSim != null || overrideCount == networkFeatures.size) StatusSuccess else StatusWarning,
+                            fontWeight = FontWeight.Medium
+                        )
                         if (uiState.activeSims.isNotEmpty()) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(top = 4.dp)
                             ) {
                                 uiState.activeSims.forEach { sim ->
-                                    val isSelected = resolution?.resolvedSim?.subscriptionId == sim.subscriptionId
+                                    val isSelected = draftNetworkSim?.subscriptionId == sim.subscriptionId
                                     FilterChip(
                                         selected = isSelected,
-                                        onClick = { terminalViewModel.assignSimToNetwork(network, sim) },
+                                        onClick = {
+                                            draftNetworkSims = draftNetworkSims + (network to sim)
+                                            isSimDraftDirty = true
+                                            terminalViewModel.clearSimSettingsSavedMessage()
+                                        },
                                         label = { Text(sim.label) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = EmeraldPrimaryContainer,
@@ -291,33 +368,95 @@ fun SimAndDiagnosticsScreen(
                                         fontWeight = FontWeight.SemiBold,
                                         color = EmeraldPrimary
                                     )
-                                    SimPreferencesStore.CORE_SIM_FEATURES.forEach { feature ->
-                                        val override = uiState.featureSimSelections[network to feature]
+                                    Text(
+                                        text = "Quick assign all ${network.displayName} operations:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextSecondary
+                                    )
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        uiState.activeSims.forEach { sim ->
+                                            val shortSlot = if (sim.isEmbedded) "eSIM" else "SIM ${sim.slotIndex + 1}"
+                                            val allMatchThisSim = networkFeatures.all { feature ->
+                                                draftFeatureSims[network to feature]?.subscriptionId == sim.subscriptionId
+                                            }
+                                            FilterChip(
+                                                selected = allMatchThisSim,
+                                                onClick = {
+                                                    val updated = draftFeatureSims.toMutableMap()
+                                                    networkFeatures.forEach { feature ->
+                                                        updated[network to feature] = sim
+                                                    }
+                                                    draftFeatureSims = updated
+                                                    isSimDraftDirty = true
+                                                    terminalViewModel.clearSimSettingsSavedMessage()
+                                                },
+                                                label = { Text("Use $shortSlot for all", style = MaterialTheme.typography.labelSmall) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = EmeraldPrimaryContainer,
+                                                    selectedLabelColor = OnEmeraldPrimaryContainer
+                                                )
+                                            )
+                                        }
+                                        if (overrideCount > 0) {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick = {
+                                                    val updated = draftFeatureSims.toMutableMap()
+                                                    networkFeatures.forEach { feature ->
+                                                        updated[network to feature] = null
+                                                    }
+                                                    draftFeatureSims = updated
+                                                    isSimDraftDirty = true
+                                                    terminalViewModel.clearSimSettingsSavedMessage()
+                                                },
+                                                label = { Text("Use Network Default", style = MaterialTheme.typography.labelSmall) }
+                                            )
+                                        }
+                                    }
+                                    HorizontalDivider(color = TerminalBorder)
+                                    networkFeatures.forEach { feature ->
+                                        val featureSim = draftFeatureSims[network to feature]
                                         Column {
                                             Text(
-                                                text = feature.displayName,
+                                                text = when {
+                                                    featureSim != null -> "${feature.displayName} • ${featureSim.label}"
+                                                    draftNetworkSim != null -> "${feature.displayName} • Using ${network.displayName} SIM (${draftNetworkSim.label})"
+                                                    else -> "${feature.displayName} • Not selected (locked)"
+                                                },
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Medium,
-                                                color = TextPrimary
+                                                color = when {
+                                                    featureSim != null -> TextPrimary
+                                                    draftNetworkSim != null -> TextSecondary
+                                                    else -> StatusWarning
+                                                }
                                             )
                                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                FilterChip(
-                                                    selected = override == null,
-                                                    onClick = { terminalViewModel.clearFeatureSimAssignment(network, feature) },
-                                                    label = { Text("Default", style = MaterialTheme.typography.labelSmall) }
-                                                )
                                                 uiState.activeSims.forEach { sim ->
-                                                    val isFeatureSelected = override?.subscriptionId == sim.subscriptionId ||
-                                                        (override != null && override.iccIdHash.isNotBlank() && override.iccIdHash == sim.iccIdHash)
-                                                    val shortSlot = if (sim.isEmbedded) "eSIM" else "SIM ${sim.slotIndex + 1}"
+                                                    val isFeatureSelected = featureSim?.subscriptionId == sim.subscriptionId
                                                     FilterChip(
                                                         selected = isFeatureSelected,
-                                                        onClick = { terminalViewModel.assignSimToFeature(network, feature, sim) },
-                                                        label = { Text(shortSlot, style = MaterialTheme.typography.labelSmall) },
+                                                        onClick = {
+                                                            draftFeatureSims = draftFeatureSims + ((network to feature) to sim)
+                                                            isSimDraftDirty = true
+                                                            terminalViewModel.clearSimSettingsSavedMessage()
+                                                        },
+                                                        label = { Text(sim.label, style = MaterialTheme.typography.labelSmall) },
                                                         colors = FilterChipDefaults.filterChipColors(
                                                             selectedContainerColor = EmeraldPrimaryContainer,
                                                             selectedLabelColor = OnEmeraldPrimaryContainer
                                                         )
+                                                    )
+                                                }
+                                                if (featureSim != null) {
+                                                    FilterChip(
+                                                        selected = false,
+                                                        onClick = {
+                                                            draftFeatureSims = draftFeatureSims + ((network to feature) to null)
+                                                            isSimDraftDirty = true
+                                                            terminalViewModel.clearSimSettingsSavedMessage()
+                                                        },
+                                                        label = { Text("Use Network Default", style = MaterialTheme.typography.labelSmall) }
                                                     )
                                                 }
                                             }
@@ -327,6 +466,57 @@ fun SimAndDiagnosticsScreen(
                             }
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = TerminalBorder)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (isSimDraftDirty) {
+                    Text(
+                        text = "Unsaved changes — tap Save SIM Settings",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = StatusWarning,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                } else if (uiState.simSettingsSavedMessage != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.CheckCircle,
+                            contentDescription = null,
+                            tint = StatusSuccess,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = uiState.simSettingsSavedMessage!!,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = StatusSuccess,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                Button(
+                    onClick = {
+                        isSimDraftDirty = false
+                        terminalViewModel.saveSimConfiguration(
+                            networkSelections = draftNetworkSims,
+                            featureSelections = draftFeatureSims
+                        )
+                    },
+                    enabled = uiState.activeSims.isNotEmpty() && !uiState.isSavingSimSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EmeraldPrimary,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(if (uiState.isSavingSimSettings) "Saving..." else "Save SIM Settings")
                 }
             }
 

@@ -61,4 +61,53 @@ class UssdPromptMatcherTest {
         val result = matcher.matchStep("Connection problem or invalid MMI code.", step)
         assertTrue(result is UssdPromptMatcher.MatchResult.ProviderError)
     }
+
+    @Test
+    fun `does not false match numeric menu prefixes or short tokens inside other words`() {
+        val menuStep = UssdFlowStep(
+            id = "MENU",
+            type = StepType.MATCH_PROMPT,
+            expectedPrompts = listOf("1.", "2."),
+            matchMode = PromptMatchMode.NORMALIZED_TEXT,
+            action = StepAction.SEND_MENU_OPTION
+        )
+        assertTrue(matcher.matchStep("Enter amount (min 1.00, max 2.50):", menuStep) is UssdPromptMatcher.MatchResult.UnexpectedPrompt)
+        assertTrue(matcher.matchStep("1. Specify Amount", menuStep) is UssdPromptMatcher.MatchResult.Matched)
+
+        val idStep = UssdFlowStep(
+            id = "MERCHANT",
+            type = StepType.MATCH_PROMPT,
+            expectedPrompts = listOf("id"),
+            matchMode = PromptMatchMode.NORMALIZED_TEXT,
+            action = StepAction.SEND_VARIABLE
+        )
+        assertTrue(matcher.matchStep("Paid successfully", idStep) is UssdPromptMatcher.MatchResult.UnexpectedPrompt)
+        assertTrue(matcher.matchStep("Enter Merchant ID:", idStep) is UssdPromptMatcher.MatchResult.Matched)
+
+        val refStep = UssdFlowStep(
+            id = "REF",
+            type = StepType.MATCH_PROMPT,
+            expectedPrompts = listOf("ref"),
+            matchMode = PromptMatchMode.NORMALIZED_TEXT,
+            action = StepAction.PAUSE_FOR_REFERENCE
+        )
+        assertTrue(matcher.matchStep("Refund policy", refStep) is UssdPromptMatcher.MatchResult.UnexpectedPrompt)
+        assertTrue(matcher.matchStep("Enter Ref:", refStep) is UssdPromptMatcher.MatchResult.Matched)
+    }
+
+    @Test
+    fun `termination and new provider error indicators win before expectedPrompts`() {
+        val momoMenuStep = UssdFlowStep(
+            id = "MAIN_MENU",
+            type = StepType.MATCH_PROMPT,
+            expectedPrompts = listOf("momo", "transfer money"),
+            matchMode = PromptMatchMode.NORMALIZED_TEXT,
+            action = StepAction.SEND_MENU_OPTION
+        )
+        assertTrue(matcher.matchStep("Thank you for using MoMo.", momoMenuStep) is UssdPromptMatcher.MatchResult.SessionTerminated)
+        assertTrue(matcher.matchStep("MoMo session expired.", momoMenuStep) is UssdPromptMatcher.MatchResult.SessionTerminated)
+        assertTrue(matcher.matchStep("Incorrect PIN entered.", momoMenuStep) is UssdPromptMatcher.MatchResult.ProviderError)
+        assertTrue(matcher.matchStep("Invalid amount specified.", momoMenuStep) is UssdPromptMatcher.MatchResult.ProviderError)
+        assertTrue(matcher.matchStep("Invalid operational ID.", momoMenuStep) is UssdPromptMatcher.MatchResult.ProviderError)
+    }
 }

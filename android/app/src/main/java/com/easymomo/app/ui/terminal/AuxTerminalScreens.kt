@@ -199,6 +199,7 @@ fun CustomUssdScreen(
                     label = "Open in Phone Dialer",
                     enabled = ussdCode.isNotBlank(),
                     onClick = {
+                        if (!terminalViewModel.requireActiveAccessOrShowGate()) return@TerminalActionButton
                         val encoded = Uri.encode("#")
                         val formatted = ussdCode.trim().replace("#", encoded)
                         context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$formatted")))
@@ -431,10 +432,19 @@ fun CustomersScreen(
     onBack: () -> Unit
 ) {
     val savedCustomers by terminalViewModel.savedCustomerNumbers.collectAsState()
+    val syncStatus by terminalViewModel.customerSyncStatus.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var newPhoneDraft by remember { mutableStateOf("") }
+    var newNicknameDraft by remember { mutableStateOf("") }
+    var addErrorText by remember { mutableStateOf<String?>(null) }
     var editingCustomer by remember { mutableStateOf<com.easymomo.app.data.local.CustomerNumberEntity?>(null) }
     var nicknameDraft by remember { mutableStateOf("") }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        terminalViewModel.triggerAutoCustomerSyncIfNeeded()
+    }
 
     val dateFormatter = remember {
         java.text.SimpleDateFormat("MMM d, yyyy • HH:mm", java.util.Locale.US)
@@ -465,6 +475,16 @@ fun CustomersScreen(
                     }
                 },
                 actions = {
+                    TextButton(
+                        onClick = {
+                            newPhoneDraft = ""
+                            newNicknameDraft = ""
+                            addErrorText = null
+                            showAddDialog = true
+                        }
+                    ) {
+                        Text("+ Add", color = EmeraldPrimary, fontWeight = FontWeight.Bold)
+                    }
                     if (savedCustomers.isNotEmpty()) {
                         TextButton(onClick = { showClearConfirm = true }) {
                             Text("Clear All", color = StatusError)
@@ -474,21 +494,63 @@ fun CustomersScreen(
             )
         }
     ) { padding ->
-        if (savedCustomers.isEmpty()) {
-            EmptyStateView(
-                icon = Icons.Outlined.People,
-                title = "No Saved Customer Numbers",
-                subtitle = "Valid customer numbers entered on the home screen are saved offline automatically when you initiate a transaction.",
-                modifier = Modifier.padding(padding)
-            )
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Cloud Sync: ${syncStatus.state.label}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Saved: ${syncStatus.localCount} • Synced: ${syncStatus.syncedCount} • Pending: ${syncStatus.pendingCount}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        syncStatus.lastError?.takeIf { it.isNotBlank() }?.let { err ->
+                            Text(
+                                text = err,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = StatusError
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = { terminalViewModel.syncCustomersNow() },
+                        enabled = syncStatus.state != com.easymomo.app.data.repository.CustomerCloudSyncState.SYNCING
+                    ) {
+                        Text(
+                            text = if (syncStatus.state == com.easymomo.app.data.repository.CustomerCloudSyncState.SYNCING) {
+                                "Syncing..."
+                            } else {
+                                "Sync Now"
+                            },
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldPrimary
+                        )
+                    }
+                }
+            }
+
+            if (savedCustomers.isEmpty()) {
+                EmptyStateView(
+                    icon = Icons.Outlined.People,
+                    title = "No Saved Customer Numbers",
+                    subtitle = "Tap '+ Add' above, tap 'Sync Now' to restore numbers from your cloud account, or run a transaction on the home screen."
+                )
+            } else {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -566,6 +628,61 @@ fun CustomersScreen(
                 }
             }
         }
+    }
+
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add Customer Number") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = newPhoneDraft,
+                        onValueChange = {
+                            newPhoneDraft = TerminalViewModel.sanitizeDashboardPhoneInput(it)
+                            addErrorText = null
+                        },
+                        label = { Text("Phone Number (10 digits)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newNicknameDraft,
+                        onValueChange = { newNicknameDraft = it },
+                        label = { Text("Nickname (Optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    addErrorText?.let { err ->
+                        Text(
+                            text = err,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = StatusError
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        terminalViewModel.addCustomerNumberManually(
+                            rawPhone = newPhoneDraft,
+                            nickname = newNicknameDraft
+                        ) { err ->
+                            if (err == null) {
+                                showAddDialog = false
+                            } else {
+                                addErrorText = err
+                            }
+                        }
+                    }
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showClearConfirm) {

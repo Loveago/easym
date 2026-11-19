@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { EntitlementStatus, PaymentStatus, Prisma, PrismaClient } from '@prisma/client';
+import { BillingInterval, EntitlementStatus, PaymentStatus, Prisma, PrismaClient } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma as defaultPrisma } from '../config/prisma';
 import { AppError } from '../middleware/errorHandler';
@@ -14,10 +14,43 @@ import { computeEntitlementSummary } from './trialService';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export async function listActivePlans(db: PrismaClient = defaultPrisma) {
-  const plans = await db.subscriptionPlan.findMany({
+  let plans = await db.subscriptionPlan.findMany({
     where: { active: true },
     orderBy: { durationDays: 'asc' },
   });
+  if (plans.length === 0 && typeof db.subscriptionPlan.upsert === 'function') {
+    const defaults = [
+      {
+        code: 'MONTHLY',
+        name: 'Monthly Agent Plan',
+        price: new Prisma.Decimal('9.00'),
+        currency: 'GHS',
+        billingInterval: BillingInterval.MONTHLY,
+        durationDays: 30,
+        active: true,
+      },
+      {
+        code: 'QUARTERLY',
+        name: '3-Month Agent Plan',
+        price: new Prisma.Decimal('25.00'),
+        currency: 'GHS',
+        billingInterval: BillingInterval.QUARTERLY,
+        durationDays: 90,
+        active: true,
+      },
+    ];
+    for (const def of defaults) {
+      await db.subscriptionPlan.upsert({
+        where: { code: def.code },
+        update: {},
+        create: def,
+      });
+    }
+    plans = await db.subscriptionPlan.findMany({
+      where: { active: true },
+      orderBy: { durationDays: 'asc' },
+    });
+  }
   return plans.map((p) => ({
     id: p.id,
     code: p.code,
@@ -128,7 +161,9 @@ export async function verifyAndActivateSubscription(
         channel: existingPayment.channel,
         paidAt: existingPayment.paidAt?.toISOString() ?? null,
       },
-      entitlement: entitlement ? computeEntitlementSummary(entitlement) : null,
+      entitlement: entitlement
+        ? computeEntitlementSummary({ ...entitlement, currentPlan: existingPayment.plan })
+        : null,
     };
   }
 
@@ -234,7 +269,9 @@ export async function verifyAndActivateSubscription(
       channel: result.payment.channel,
       paidAt: result.payment.paidAt?.toISOString() ?? null,
     },
-    entitlement: result.entitlement ? computeEntitlementSummary(result.entitlement, now) : null,
+    entitlement: result.entitlement
+      ? computeEntitlementSummary({ ...result.entitlement, currentPlan: existingPayment.plan }, now)
+      : null,
   };
 }
 

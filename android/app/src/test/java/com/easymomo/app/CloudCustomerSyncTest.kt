@@ -107,7 +107,27 @@ class CloudCustomerSyncTest {
         }
         override suspend fun purgeSyncedTombstones() { items.removeAll { it.syncStatus == "SYNCED" && it.deletedAt != null }; emit() }
         override suspend fun deleteAllForOwner(ownerUserId: String) { items.removeAll { it.ownerUserId == ownerUserId }; emit() }
-        override suspend fun deleteOtherAccountRecords(currentUserId: String) { items.removeAll { it.ownerUserId != null && it.ownerUserId != currentUserId }; emit() }
+        override suspend fun deleteOtherAccountRecords(currentUserId: String) {
+            items.removeAll {
+                it.ownerUserId != null &&
+                    it.ownerUserId != "debug-guest-agent" &&
+                    it.ownerUserId != currentUserId
+            }
+            emit()
+        }
+        override suspend fun adoptUnownedOrGuestRecords(ownerUserId: String) {
+            for (i in items.indices) {
+                val cur = items[i]
+                if (cur.ownerUserId == null || cur.ownerUserId == "debug-guest-agent") {
+                    items[i] = cur.copy(
+                        ownerUserId = ownerUserId,
+                        syncStatus = if (cur.deletedAt != null) "PENDING_DELETE" else "PENDING_UPLOAD"
+                    )
+                }
+            }
+            emit()
+        }
+        override suspend fun getActiveCount(): Int = items.count { it.deletedAt == null }
         override fun observeActiveCount(): Flow<Int> = MutableStateFlow(items.count { it.deletedAt == null })
         override fun observeSyncedCount(): Flow<Int> = MutableStateFlow(items.count { it.deletedAt == null && it.syncStatus == "SYNCED" })
         override fun observePendingCount(): Flow<Int> = MutableStateFlow(items.count { it.syncStatus != "SYNCED" })
@@ -176,5 +196,50 @@ class CloudCustomerSyncTest {
     fun `database migration 3 to 4 has expected version bounds`() {
         assertEquals(3, EasyMoMoDatabase.MIGRATION_3_4.startVersion)
         assertEquals(4, EasyMoMoDatabase.MIGRATION_3_4.endVersion)
+    }
+
+    @Test
+    fun `adopts guest and unowned customer numbers when user signs into cloud account`() = runTest {
+        val dao = InMemoryCustomerDao()
+        val now = 1_000L
+        dao.insert(
+            CustomerNumberEntity(
+                phoneNumber = "0241112222",
+                normalizedPhoneNumber = "0241112222",
+                firstUsedAt = now,
+                lastUsedAt = now,
+                ownerUserId = "debug-guest-agent",
+                syncStatus = "SYNCED"
+            )
+        )
+        dao.insert(
+            CustomerNumberEntity(
+                phoneNumber = "0553334444",
+                normalizedPhoneNumber = "0553334444",
+                firstUsedAt = now,
+                lastUsedAt = now,
+                ownerUserId = null,
+                syncStatus = "SYNCED"
+            )
+        )
+
+        dao.adoptUnownedOrGuestRecords("real-agent-1")
+
+        val pending = dao.getPendingChanges()
+        assertEquals(2, pending.size)
+        assertTrue(pending.all { it.ownerUserId == "real-agent-1" && it.syncStatus == "PENDING_UPLOAD" })
+    }
+
+    @Test
+    fun `manual customer save normalizes phone, stores nickname, and triggers cloud sync`() = runTest {
+        val dao = InMemoryCustomerDao()
+        var syncQueuedCount = 0
+        val repo = createRepo(dao) { syncQueuedCount++ }
+
+        val saved = repo.saveCustomerNumberManually("0209489266", "Ama Shop").getOrThrow()
+        assertEquals("0209489266", saved.normalizedPhoneNumber)
+        assertEquals("Ama Shop", saved.nickname)
+        assertEquals("PENDING_UPLOAD", saved.syncStatus)
+        assertEquals(1, syncQueuedCount)
     }
 }

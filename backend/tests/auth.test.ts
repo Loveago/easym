@@ -6,10 +6,19 @@ import { AccountStatus, EntitlementStatus, PrismaClient, UserRole } from '@prism
 import { createApp } from '../src/app';
 import { env } from '../src/config/env';
 import { prisma } from '../src/config/prisma';
-import { loginAgent, registerAgent } from '../src/services/authService';
+import {
+  loginAgent,
+  loginOrRegisterWithGoogle,
+  registerAgent,
+} from '../src/services/authService';
+import {
+  clearDeviceLimitTestState,
+  unregisterDevice,
+  verifyAndRegisterDevice,
+} from '../src/services/deviceLimitService';
 
 describe('Authentication & Entitlement Middleware', () => {
-  it('registers a new agent and activates 7-day TRIAL atomically', async () => {
+  it('registers a new agent and activates 15-day TRIAL atomically', async () => {
     const createdUser = {
       id: 'user-123',
       fullName: 'Kwame Mensah',
@@ -59,7 +68,7 @@ describe('Authentication & Entitlement Middleware', () => {
     expect(result.user.email).toBe('kwame@example.com');
     expect(result.entitlement.status).toBe(EntitlementStatus.TRIAL);
     expect(result.entitlement.hasAccess).toBe(true);
-    expect(result.entitlement.remainingDays).toBe(7);
+    expect(result.entitlement.remainingDays).toBe(15);
   });
 
   it('rejects duplicate email or phone on registration', async () => {
@@ -168,6 +177,7 @@ describe('Authentication & Entitlement Middleware', () => {
       email: 'exp@example.com',
       phone: '0240000000',
       fullName: 'Expired User',
+      createdAt: new Date('2026-10-01T00:00:00Z'),
       role: UserRole.AGENT,
       accountStatus: AccountStatus.ACTIVE,
     } as never);
@@ -182,15 +192,122 @@ describe('Authentication & Entitlement Middleware', () => {
       recurringAuthorized: false,
     } as never);
 
-    const syncRes = await request(app)
-      .post('/api/transactions/sync')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ transactions: [] });
-
+    const auth = { Authorization: `Bearer ${token}` };
+    const syncRes = await request(app).post('/api/transactions/sync').set(auth).send({ transactions: [] });
     expect(syncRes.status).toBe(402);
     expect(syncRes.body.error.code).toBe('SUBSCRIPTION_REQUIRED');
 
+    for (const path of [
+      '/api/transactions',
+      '/api/customers',
+      '/api/reports/summary',
+      '/api/config/ussd-flows',
+      '/api/config/bundles',
+    ]) {
+      const r = await request(app).get(path).set(auth);
+      expect(r.status, path).toBe(402);
+    }
+
+    const me = await request(app).get('/api/auth/me').set(auth);
+    expect(me.status).toBe(200);
+    const status = await request(app).get('/api/subscriptions/status').set(auth);
+    expect(status.status).toBe(200);
+
     userSpy.mockRestore();
     entSpy.mockRestore();
+  });
+
+  it('locks active devices per account to 2 and releases a slot on logout', async () => {
+    clearDeviceLimitTestState();
+
+    // Device 1 and Device 2 succeed
+    const d1 = await verifyAndRegisterDevice('user-dev-test', 'device-1', 'Samsung A14');
+    expect(d1.activeDevices).toBe(1);
+    const d2 = await verifyAndRegisterDevice('user-dev-test', 'device-2', 'Tecno Spark');
+    expect(d2.activeDevices).toBe(2);
+
+    // Re-verifying existing Device 1 succeeds
+    const d1Again = await verifyAndRegisterDevice('user-dev-test', 'device-1', 'Samsung A14', undefined, {
+      bypassThrottle: true,
+    });
+    expect(d1Again.activeDevices).toBe(2);
+
+    // Device 3 is blocked with 403 DEVICE_LIMIT_REACHED
+    await expect(
+      verifyAndRegisterDevice('user-dev-test', 'device-3', 'Infinix Hot', undefined, {
+        bypassThrottle: true,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'DEVICE_LIMIT_REACHED',
+    });
+
+    // Signing out Device 1 frees a slot so Device 3 can register
+    await unregisterDevice('user-dev-test', 'device-1');
+    const d3AfterLogout = await verifyAndRegisterDevice('user-dev-test', 'device-3', 'Infinix Hot', undefined, {
+      bypassThrottle: true,
+    });
+    expect(d3AfterLogout.activeDevices).toBe(2);
+  });
+
+  it('registers new agent via Google Sign-Up with 15-day trial and rejects when unconfigured', async () => {
+    clearDeviceLimitTestState();
+
+    await expect(
+      loginOrRegisterWithGoogle({ idToken: 'fake-token-1234567890123456' }, undefined, undefined, ''),
+    ).rejects.toMatchObject({ statusCode: 503, code: 'GOOGLE_AUTH_NOT_CONFIGURED' });
+
+    const createdUser = {
+      id: 'google-user-1',
+      fullName: 'Kofi Mensah',
+      email: 'kofi@gmail.com',
+      phone: 'g-1234567890ab',
+      passwordHash: 'hashed',
+      role: UserRole.AGENT,
+      accountStatus: AccountStatus.ACTIVE,
+      trialConsumed: true,
+      createdAt: new Date(),
+    };
+
+    const mockDb = {
+      user: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          user: { create: vi.fn().mockResolvedValue(createdUser) },
+          subscriptionEntitlement: {
+            create: vi.fn().mockImplementation(({ data }) =>
+              Promise.resolve({
+                id: 'ent-g1',
+                ...data,
+                paidUntil: null,
+                currentPlanId: null,
+                recurringAuthorized: false,
+              }),
+            ),
+          },
+        };
+        return cb(tx);
+      }),
+    } as unknown as PrismaClient;
+
+    const fakeVerifier = vi.fn().mockResolvedValue({
+      email: 'kofi@gmail.com',
+      fullName: 'Kofi Mensah',
+      sub: 'sub-google-1',
+    });
+
+    const res = await loginOrRegisterWithGoogle(
+      { idToken: 'valid-token-1234567890123456', deviceId: 'dev-g1', deviceName: 'Pixel 8' },
+      mockDb,
+      fakeVerifier,
+      '12345.apps.googleusercontent.com',
+    );
+
+    expect(res.token).toBeTruthy();
+    expect(res.user.email).toBe('kofi@gmail.com');
+    expect(res.entitlement.status).toBe(EntitlementStatus.TRIAL);
+    expect(res.entitlement.remainingDays).toBe(15);
   });
 });

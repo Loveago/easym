@@ -107,6 +107,7 @@ class CustomerSyncManager(
         if (!enabled) return
         val token = sessionStore.authToken
         if (token.isNullOrBlank() || token == DEBUG_GUEST_TOKEN) return
+        if (!sessionStore.getSubscription().hasActiveAccess()) return
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -127,14 +128,15 @@ class CustomerSyncManager(
     }
 
     suspend fun onUserAuthenticated(userId: String) {
+        customerNumberDao.adoptUnownedOrGuestRecords(userId)
         val (_, _, lastUserId) = simPreferencesStore.getLastCustomerSyncMeta()
-        if (lastUserId != null && lastUserId != userId) {
+        if (lastUserId != null && lastUserId != "debug-guest-agent" && lastUserId != userId) {
             customerNumberDao.deleteOtherAccountRecords(userId)
             simPreferencesStore.saveCustomerSyncMeta(lastSyncAt = 0L, error = null, userId = userId)
         }
         val settings = simPreferencesStore.agentSettingsFlow.first()
         if (settings.customerCloudSyncEnabled) {
-            syncNow(forceFullRestore = lastUserId != userId)
+            syncNow(forceFullRestore = true)
         }
     }
 
@@ -142,44 +144,81 @@ class CustomerSyncManager(
         runCatching {
             WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_SYNC_WORK_NAME)
         }
-        if (!previousUserId.isNullOrBlank()) {
-            customerNumberDao.deleteAllForOwner(previousUserId)
-        }
         simPreferencesStore.saveCustomerSyncMeta(lastSyncAt = 0L, error = null, userId = null)
     }
 
     suspend fun syncNow(forceFullRestore: Boolean = false): SyncExecutionOutcome = syncMutex.withLock {
         val token = sessionStore.authToken
         val user = sessionStore.getUser()
+        val (prevLastSyncAt, _, prevLastUserId) = simPreferencesStore.getLastCustomerSyncMeta()
         if (token.isNullOrBlank() || user == null || token == DEBUG_GUEST_TOKEN) {
-            return@withLock SyncExecutionOutcome.Skipped("Not signed in to cloud account")
+            val msg = "Sign in with your EasyMoMo cloud account (not Guest) to sync customer numbers."
+            simPreferencesStore.saveCustomerSyncMeta(prevLastSyncAt, msg, user?.id)
+            return@withLock SyncExecutionOutcome.Skipped(msg)
+        }
+        if (!sessionStore.getSubscription().hasActiveAccess()) {
+            val msg = "Active subscription or trial required for cloud sync."
+            simPreferencesStore.saveCustomerSyncMeta(prevLastSyncAt, msg, user.id)
+            return@withLock SyncExecutionOutcome.Skipped(msg)
         }
         if (!isNetworkAvailable()) {
-            return@withLock SyncExecutionOutcome.RetryableError("Offline")
+            val msg = "No internet connection available for cloud sync."
+            simPreferencesStore.saveCustomerSyncMeta(prevLastSyncAt, msg, user.id)
+            return@withLock SyncExecutionOutcome.RetryableError(msg)
         }
 
         _isSyncing.value = true
         try {
+            customerNumberDao.adoptUnownedOrGuestRecords(user.id)
             val (lastSyncAt, _, lastUserId) = simPreferencesStore.getLastCustomerSyncMeta()
-            if (lastUserId != null && lastUserId != user.id) {
+            if (lastUserId != null && lastUserId != "debug-guest-agent" && lastUserId != user.id) {
                 customerNumberDao.deleteOtherAccountRecords(user.id)
             }
 
             // 1. Push pending local uploads and deletions in batches of 100
-            val pending = customerNumberDao.getPendingChanges()
-            for (batch in pending.chunked(BATCH_SIZE)) {
+            val rawPending = customerNumberDao.getPendingChanges()
+            val validPendingByNorm = linkedMapOf<String, MutableList<CustomerNumberEntity>>()
+            val nowMs = System.currentTimeMillis()
+            for (entity in rawPending) {
+                val candidate = entity.normalizedPhoneNumber.ifBlank { entity.phoneNumber }
+                val norm = NetworkPrefixDetector.normalizeGhanaPhone(candidate)
+                if (!NetworkPrefixDetector.isValidGhanaPhone(norm)) {
+                    // Clean up invalid legacy/non-mobile records so they never poison a sync batch
+                    if (entity.deletedAt != null) {
+                        customerNumberDao.deleteById(entity.id)
+                    } else {
+                        customerNumberDao.markSynced(
+                            id = entity.id,
+                            cloudId = entity.cloudId ?: "local-only",
+                            ownerUserId = user.id,
+                            version = entity.version,
+                            syncedAt = nowMs
+                        )
+                    }
+                } else {
+                    validPendingByNorm.getOrPut(norm) { mutableListOf() }.add(entity)
+                }
+            }
+
+            val dedupedEntries = validPendingByNorm.entries.toList()
+            for (batch in dedupedEntries.chunked(BATCH_SIZE)) {
                 val payload = CustomerSyncRequest(
-                    customers = batch.map { entity ->
+                    customers = batch.map { (norm, entities) ->
+                        val primary = entities.maxByOrNull { it.updatedAt } ?: entities.first()
+                        val displayPhone = primary.phoneNumber.trim().ifBlank { norm }
+                        val safeLast = primary.lastUsedAt.takeIf { it > 0L } ?: nowMs
+                        val safeFirst = primary.firstUsedAt.takeIf { it in 1L..safeLast } ?: safeLast
+                        val safeUpdated = primary.updatedAt.takeIf { it > 0L } ?: safeLast
                         CustomerSyncItemDto(
-                            cloudId = entity.cloudId,
-                            phoneNumber = entity.phoneNumber,
-                            normalizedPhoneNumber = entity.normalizedPhoneNumber,
-                            nickname = entity.nickname,
-                            firstUsedAt = entity.firstUsedAt,
-                            lastUsedAt = entity.lastUsedAt,
-                            usageCount = entity.usageCount,
-                            updatedAt = entity.updatedAt,
-                            deletedAt = entity.deletedAt
+                            cloudId = primary.cloudId,
+                            phoneNumber = displayPhone,
+                            normalizedPhoneNumber = norm,
+                            nickname = primary.nickname?.trim()?.takeIf { it.isNotEmpty() },
+                            firstUsedAt = safeFirst,
+                            lastUsedAt = safeLast,
+                            usageCount = primary.usageCount.coerceAtLeast(1),
+                            updatedAt = safeUpdated,
+                            deletedAt = primary.deletedAt
                         )
                     }
                 )
@@ -189,6 +228,11 @@ class CustomerSyncManager(
                     simPreferencesStore.saveCustomerSyncMeta(lastSyncAt, msg, user.id)
                     return@withLock SyncExecutionOutcome.AuthExpired(msg)
                 }
+                if (response.code() == 402) {
+                    val msg = "Active subscription or trial required for cloud sync."
+                    simPreferencesStore.saveCustomerSyncMeta(lastSyncAt, msg, user.id)
+                    return@withLock SyncExecutionOutcome.Skipped(msg)
+                }
                 if (!response.isSuccessful) {
                     val msg = "Sync upload failed (${response.code()})"
                     simPreferencesStore.saveCustomerSyncMeta(lastSyncAt, msg, user.id)
@@ -196,25 +240,35 @@ class CustomerSyncManager(
                 }
 
                 val syncedRows = response.body()?.synced.orEmpty()
-                val syncedByNorm = syncedRows.associateBy { it.normalizedPhoneNumber }
+                val syncedByNorm = syncedRows.associateBy {
+                    NetworkPrefixDetector.normalizeGhanaPhone(it.normalizedPhoneNumber)
+                }
                 val now = System.currentTimeMillis()
-                batch.forEach { local ->
-                    val remote = syncedByNorm[local.normalizedPhoneNumber]
+                batch.forEach { (norm, localEntities) ->
+                    val remote = syncedByNorm[norm]
                     if (remote != null) {
-                        customerNumberDao.markSynced(
-                            id = local.id,
-                            cloudId = remote.id,
-                            ownerUserId = user.id,
-                            version = remote.version,
-                            syncedAt = now
-                        )
+                        localEntities.forEach { local ->
+                            customerNumberDao.markSynced(
+                                id = local.id,
+                                cloudId = remote.id,
+                                ownerUserId = user.id,
+                                version = remote.version,
+                                syncedAt = now
+                            )
+                        }
                     }
                 }
             }
             customerNumberDao.purgeSyncedTombstones()
 
             // 2. Pull incremental or full paginated customer records from cloud
-            val sinceParam = if (forceFullRestore || lastUserId != user.id || lastSyncAt <= 0L) null else lastSyncAt
+            val localActiveCount = customerNumberDao.getActiveCount()
+            val needsFullPull = forceFullRestore ||
+                localActiveCount == 0 ||
+                lastUserId != user.id ||
+                prevLastUserId != user.id ||
+                lastSyncAt <= 0L
+            val sinceParam = if (needsFullPull) null else lastSyncAt
             var cursor: String? = null
             var latestServerTime = lastSyncAt
 
@@ -229,6 +283,11 @@ class CustomerSyncManager(
                     val msg = "Session expired. Please sign in again."
                     simPreferencesStore.saveCustomerSyncMeta(lastSyncAt, msg, user.id)
                     return@withLock SyncExecutionOutcome.AuthExpired(msg)
+                }
+                if (response.code() == 402) {
+                    val msg = "Active subscription or trial required for cloud sync."
+                    simPreferencesStore.saveCustomerSyncMeta(lastSyncAt, msg, user.id)
+                    return@withLock SyncExecutionOutcome.Skipped(msg)
                 }
                 if (!response.isSuccessful) {
                     val msg = "Sync download failed (${response.code()})"

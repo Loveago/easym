@@ -78,8 +78,8 @@ router.post(
   },
 );
 
-// Transaction history remains readable even after subscription expiration
-router.get('/', requireAuth, validate(listQuerySchema, 'query'), async (req, res, next) => {
+// Transaction reads also require an active trial or paid subscription
+router.get('/', requireAuth, requireActiveEntitlement, validate(listQuerySchema, 'query'), async (req, res, next) => {
   try {
     const result = await listTransactions(req.user!.id, req.query as never);
     res.status(200).json(result);
@@ -88,7 +88,7 @@ router.get('/', requireAuth, validate(listQuerySchema, 'query'), async (req, res
   }
 });
 
-router.get('/:id', requireAuth, async (req, res, next) => {
+router.get('/:id', requireAuth, requireActiveEntitlement, async (req, res, next) => {
   try {
     const result = await getTransactionById(req.user!.id, String(req.params.id));
     res.status(200).json({ transaction: result });

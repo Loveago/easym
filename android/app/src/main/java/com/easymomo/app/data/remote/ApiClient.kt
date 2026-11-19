@@ -18,14 +18,13 @@ object ApiClient {
     fun create(sessionStore: SessionStore): EasyMoMoApiService {
         val authInterceptor = Interceptor { chain ->
             val token = sessionStore.authToken
-            val req = if (!token.isNullOrBlank()) {
-                chain.request().newBuilder()
-                    .addHeader("Authorization", "Bearer $token")
-                    .build()
-            } else {
-                chain.request()
+            val reqBuilder = chain.request().newBuilder()
+                .header("X-Device-Id", sessionStore.deviceId)
+                .header("X-Device-Name", sessionStore.deviceName)
+            if (!token.isNullOrBlank()) {
+                reqBuilder.header("Authorization", "Bearer $token")
             }
-            chain.proceed(req)
+            chain.proceed(reqBuilder.build())
         }
 
         val clientBuilder = OkHttpClient.Builder()

@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -39,9 +41,9 @@ import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dialpad
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Payments
@@ -53,6 +55,8 @@ import androidx.compose.material.icons.outlined.SimCard
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,6 +68,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -85,21 +91,31 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.easymomo.app.R
 import com.easymomo.app.data.local.CustomerNumberEntity
 import com.easymomo.app.data.local.TransactionEntity
 import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionStatus
 import com.easymomo.app.domain.model.TransactionType
+import com.easymomo.app.ui.customussd.CustomUssdViewModel
+import com.easymomo.app.ussd.CustomUssdRepeatCoordinator
 import com.easymomo.app.ussd.SimSlotInfo
+import com.easymomo.app.ussd.capture.CustomUssdOperationType
+import com.easymomo.app.ussd.capture.SimpleCustomUssdFlow
 import com.easymomo.app.ussd.model.UssdSessionState
 import com.easymomo.app.ui.theme.EasyMoMoCard
 import com.easymomo.app.ui.theme.AmberAccent
@@ -123,7 +139,6 @@ import com.easymomo.app.ui.theme.TerminalSurfaceVariant
 import com.easymomo.app.ui.theme.TextMuted
 import com.easymomo.app.ui.theme.TextPrimary
 import com.easymomo.app.ui.theme.TextSecondary
-import com.easymomo.app.ui.theme.TrialSubscriptionBanner
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
@@ -138,12 +153,13 @@ private val TelecelBorderStroke = BorderStroke(1.dp, Color(0xFFE60000))
 @Composable
 fun DashboardScreen(
     terminalViewModel: TerminalViewModel,
+    customUssdViewModel: CustomUssdViewModel,
     onOpenHelp: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenCustomers: () -> Unit,
     onOpenMerchant: () -> Unit,
     onOpenReports: () -> Unit,
-    onOpenSubscription: () -> Unit,
+    onOpenUserProfileInSettings: () -> Unit,
     onOpenUssdDevMode: () -> Unit,
     onOpenSimAndDiagnostics: () -> Unit,
     onOpenDataBundles: (NetworkType) -> Unit,
@@ -153,16 +169,28 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val uiState by terminalViewModel.uiState.collectAsStateWithLifecycle()
+    val customUssdState by customUssdViewModel.uiState.collectAsStateWithLifecycle()
     var pendingNetworkSelectionType by remember { mutableStateOf<TransactionType?>(null) }
     var pendingPermissionAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingAccessibilityAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var showCustomUssdPopup by remember { mutableStateOf(false) }
     val amountFmt = remember { DecimalFormat("0.00", DecimalFormatSymbols(Locale.US)) }
+
+    val runIfEntitled = remember(terminalViewModel) {
+        { action: () -> Unit ->
+            if (terminalViewModel.requireActiveAccessOrShowGate()) {
+                action()
+            }
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 terminalViewModel.refreshDeviceStatus()
+                terminalViewModel.refreshSubscriptionStatus()
+                terminalViewModel.triggerAutoCustomerSyncIfNeeded()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -224,13 +252,12 @@ fun DashboardScreen(
                 darkModeEnabled = uiState.agentSettings.darkModeEnabled,
                 onToggleDarkMode = terminalViewModel::setDarkModeEnabled,
                 onOpenHelp = onOpenHelp,
-                onOpenHistory = onOpenHistory,
-                onOpenCustomers = onOpenCustomers,
-                onOpenMerchant = onOpenMerchant,
-                onOpenReports = onOpenReports,
+                onOpenHistory = { runIfEntitled(onOpenHistory) },
+                onOpenCustomers = { runIfEntitled(onOpenCustomers) },
+                onOpenMerchant = { runIfEntitled(onOpenMerchant) },
+                onOpenReports = { runIfEntitled(onOpenReports) },
                 onShareApp = onShareApp,
-                onOpenSubscription = onOpenSubscription,
-                onOpenUssdDevMode = onOpenUssdDevMode,
+                onOpenUssdDevMode = { runIfEntitled(onOpenUssdDevMode) },
                 onOpenSimAndDiagnostics = onOpenSimAndDiagnostics,
                 onLogout = onLogout
             )
@@ -261,13 +288,7 @@ fun DashboardScreen(
                         onClick = onOpenSimAndDiagnostics
                     )
 
-                    // 2. 7-Day Trial / Subscription Banner (isolated flow collection)
-                    TrialBannerSection(
-                        terminalViewModel = terminalViewModel,
-                        onOpenSubscription = onOpenSubscription
-                    )
-
-                    // 3. Side-by-side Amount (GHS) & Phone Number with auto-network detection
+                    // 2. Side-by-side Amount (GHS) & Phone Number with auto-network detection
                     AmountPhoneInputCard(
                         amountText = uiState.amountText,
                         phoneText = uiState.phoneText,
@@ -279,7 +300,7 @@ fun DashboardScreen(
                         onPhoneChange = terminalViewModel::onPhoneChange,
                         onDismissPhoneSuggestions = terminalViewModel::dismissPhoneSuggestions,
                         onPhoneSuggestionSelected = terminalViewModel::onPhoneSuggestionSelected,
-                        onOpenCustomers = onOpenCustomers,
+                        onOpenCustomers = { runIfEntitled(onOpenCustomers) },
                         onPortedChange = terminalViewModel::onPortedChange,
                         onClearForm = terminalViewModel::clearForm,
                         onManualNetworkSelect = terminalViewModel::onManualNetworkSelect
@@ -302,18 +323,38 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 val launchOrSelectNetwork: (TransactionType) -> Unit = { txType ->
-                    val mode = uiState.agentSettings.defaultNetworkMode
-                    val fixedNet = if (mode != "ASK") NetworkType.fromCode(mode) else NetworkType.UNKNOWN
-                    if (fixedNet != NetworkType.UNKNOWN) {
-                        runWithCallPermission {
+                    runIfEntitled {
+                        val detected = uiState.detectedNetwork
+                        val mode = uiState.agentSettings.defaultNetworkMode
+                        val fixedNet = if (mode != "ASK") NetworkType.fromCode(mode) else NetworkType.UNKNOWN
+                        val resolvedNetwork = when {
+                            detected != NetworkType.UNKNOWN -> detected
+                            fixedNet != NetworkType.UNKNOWN -> fixedNet
+                            else -> NetworkType.UNKNOWN
+                        }
+                        if (resolvedNetwork != NetworkType.UNKNOWN) {
+                            runWithCallPermission {
+                                terminalViewModel.prepareAndRunInlineUssd(
+                                    type = txType,
+                                    overrideNetwork = resolvedNetwork,
+                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                )
+                            }
+                        } else if (
+                            (txType == TransactionType.CASH_IN ||
+                                txType == TransactionType.CASH_OUT ||
+                                txType == TransactionType.DATA ||
+                                txType == TransactionType.AIRTIME) &&
+                            uiState.phoneText.count { it.isDigit() } < 10
+                        ) {
                             terminalViewModel.prepareAndRunInlineUssd(
                                 type = txType,
-                                overrideNetwork = fixedNet,
+                                overrideNetwork = NetworkType.UNKNOWN,
                                 onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
                             )
+                        } else {
+                            pendingNetworkSelectionType = txType
                         }
-                    } else {
-                        pendingNetworkSelectionType = txType
                     }
                 }
 
@@ -325,64 +366,98 @@ fun DashboardScreen(
                     DashboardActionGrid(
                         onCashIn = { launchOrSelectNetwork(TransactionType.CASH_IN) },
                         onCashOut = {
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = TransactionType.CASH_OUT,
-                                    overrideNetwork = NetworkType.MTN,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            runIfEntitled {
+                                val targetNet = if (uiState.detectedNetwork != NetworkType.UNKNOWN) {
+                                    uiState.detectedNetwork
+                                } else {
+                                    NetworkType.MTN
+                                }
+                                runWithCallPermission {
+                                    terminalViewModel.prepareAndRunInlineUssd(
+                                        type = TransactionType.CASH_OUT,
+                                        overrideNetwork = targetNet,
+                                        onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                    )
+                                }
                             }
                         },
                         onData = { launchOrSelectNetwork(TransactionType.DATA) },
                         onAirtime = { launchOrSelectNetwork(TransactionType.AIRTIME) },
                         onEvdBundle = {
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = TransactionType.EVD_BUNDLE,
-                                    overrideNetwork = NetworkType.MTN,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            runIfEntitled {
+                                runWithCallPermission {
+                                    terminalViewModel.prepareAndRunInlineUssd(
+                                        type = TransactionType.EVD_BUNDLE,
+                                        overrideNetwork = NetworkType.MTN,
+                                        onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                    )
+                                }
                             }
                         },
                         onEvdAirtime = {
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = TransactionType.EVD_AIRTIME,
-                                    overrideNetwork = NetworkType.MTN,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            runIfEntitled {
+                                runWithCallPermission {
+                                    terminalViewModel.prepareAndRunInlineUssd(
+                                        type = TransactionType.EVD_AIRTIME,
+                                        overrideNetwork = NetworkType.MTN,
+                                        onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                    )
+                                }
                             }
                         },
-                        onOpenCustomUssd = onOpenCustomUssd,
+                        onOpenCustomUssd = {
+                            runIfEntitled {
+                                showCustomUssdPopup = true
+                            }
+                        },
                         onOpenMerchant = {
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = TransactionType.MERCHANT_PAY,
-                                    overrideNetwork = NetworkType.MTN,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            runIfEntitled {
+                                runWithCallPermission {
+                                    terminalViewModel.prepareAndRunInlineUssd(
+                                        type = TransactionType.MERCHANT_PAY,
+                                        overrideNetwork = NetworkType.MTN,
+                                        onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                    )
+                                }
                             }
                         },
                         onGig = { launchOrSelectNetwork(TransactionType.GIG) },
                         onCommission = {
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = TransactionType.COMMISSION,
-                                    overrideNetwork = NetworkType.MTN,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            runIfEntitled {
+                                runWithCallPermission {
+                                    terminalViewModel.prepareAndRunInlineUssd(
+                                        type = TransactionType.COMMISSION,
+                                        overrideNetwork = NetworkType.MTN,
+                                        onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                    )
+                                }
                             }
                         },
                         onBalance = {
-                            val mode = uiState.agentSettings.defaultNetworkMode
-                            val fixedNet = if (mode != "ASK") NetworkType.fromCode(mode) else NetworkType.UNKNOWN
-                            val net = if (fixedNet != NetworkType.UNKNOWN) fixedNet else NetworkType.MTN
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = TransactionType.BALANCE,
-                                    overrideNetwork = net,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            runIfEntitled {
+                                val detected = uiState.detectedNetwork
+                                val mode = uiState.agentSettings.defaultNetworkMode
+                                val fixedNet = if (mode != "ASK") NetworkType.fromCode(mode) else NetworkType.UNKNOWN
+                                val assignedNets = uiState.simResolutions.values
+                                    .filter { it.resolvedSim != null }
+                                    .map { it.network }
+                                val targetNet = when {
+                                    detected != NetworkType.UNKNOWN -> detected
+                                    fixedNet != NetworkType.UNKNOWN -> fixedNet
+                                    assignedNets.size == 1 -> assignedNets.first()
+                                    else -> NetworkType.UNKNOWN
+                                }
+                                if (targetNet != NetworkType.UNKNOWN) {
+                                    runWithCallPermission {
+                                        terminalViewModel.prepareAndRunInlineUssd(
+                                            type = TransactionType.BALANCE,
+                                            overrideNetwork = targetNet,
+                                            onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                                        )
+                                    }
+                                } else {
+                                    pendingNetworkSelectionType = TransactionType.BALANCE
+                                }
                             }
                         }
                     )
@@ -392,7 +467,7 @@ fun DashboardScreen(
                         terminalViewModel = terminalViewModel,
                         amountFmt = amountFmt,
                         hideTotals = uiState.agentSettings.hideTodayTotalsOnHome,
-                        onOpenHistory = onOpenHistory
+                        onOpenHistory = { runIfEntitled(onOpenHistory) }
                     )
 
                     // Footer
@@ -416,6 +491,10 @@ fun DashboardScreen(
             onDismiss = { pendingNetworkSelectionType = null },
             onSelectNetwork = { network ->
                 pendingNetworkSelectionType = null
+                if (uiState.phoneText.isNotBlank() && uiState.detectedNetwork != network) {
+                    terminalViewModel.onPortedChange(true)
+                    terminalViewModel.onManualNetworkSelect(network)
+                }
                 runWithCallPermission {
                     terminalViewModel.prepareAndRunInlineUssd(
                         type = selectedType,
@@ -432,7 +511,7 @@ fun DashboardScreen(
             onDismiss = terminalViewModel::dismissSubscriptionGate,
             onRenew = {
                 terminalViewModel.dismissSubscriptionGate()
-                onOpenSubscription()
+                onOpenUserProfileInSettings()
             }
         )
     }
@@ -445,6 +524,33 @@ fun DashboardScreen(
             isAccessibilityEnabled = uiState.isAccessibilityEnabled,
             amountFmt = amountFmt,
             onOpenSimAndDiagnostics = onOpenSimAndDiagnostics
+        )
+    }
+
+    if (showCustomUssdPopup) {
+        CustomUssdPickerDialog(
+            flows = customUssdState.simpleFlows,
+            onDismiss = { showCustomUssdPopup = false },
+            onRunFlow = { flow, repeatCount ->
+                showCustomUssdPopup = false
+                runWithCallPermission {
+                    terminalViewModel.runCustomUssdFlow(flow, repeatCount)
+                }
+            },
+            onEditFlow = { flow ->
+                showCustomUssdPopup = false
+                runIfEntitled {
+                    customUssdViewModel.startEditingSimpleFlow(flow)
+                    onOpenCustomUssd()
+                }
+            },
+            onCreateNew = {
+                showCustomUssdPopup = false
+                runIfEntitled {
+                    customUssdViewModel.resetBuilder()
+                    onOpenCustomUssd()
+                }
+            }
         )
     }
 
@@ -476,7 +582,6 @@ private fun DashboardTopBar(
     onOpenMerchant: () -> Unit,
     onOpenReports: () -> Unit,
     onShareApp: () -> Unit,
-    onOpenSubscription: () -> Unit,
     onOpenUssdDevMode: () -> Unit,
     onOpenSimAndDiagnostics: () -> Unit,
     onLogout: () -> Unit
@@ -498,20 +603,14 @@ private fun DashboardTopBar(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.easymomo_app_logo),
+                    contentDescription = "EasyMoMo",
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(36.dp)
                         .clip(RoundedShape10)
-                        .background(EmeraldPrimary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.PointOfSale,
-                        contentDescription = "EasyMoMo",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "EasyMoMo",
@@ -557,7 +656,6 @@ private fun DashboardTopBar(
             onOpenHelp = { showMenu = false; onOpenHelp() },
             onOpenSimAndDiagnostics = { showMenu = false; onOpenSimAndDiagnostics() },
             onOpenUssdDevMode = { showMenu = false; onOpenUssdDevMode() },
-            onOpenSubscription = { showMenu = false; onOpenSubscription() },
             onShareApp = { showMenu = false; onShareApp() },
             onLogout = { showMenu = false; onLogout() }
         )
@@ -574,7 +672,6 @@ private fun DashboardMenuSheet(
     onOpenHelp: () -> Unit,
     onOpenSimAndDiagnostics: () -> Unit,
     onOpenUssdDevMode: () -> Unit,
-    onOpenSubscription: () -> Unit,
     onShareApp: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -600,20 +697,14 @@ private fun DashboardMenuSheet(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
+                    Image(
+                        painter = painterResource(id = R.drawable.easymomo_app_logo),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(32.dp)
                             .clip(RoundedShape10)
-                            .background(EmeraldPrimary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.PointOfSale,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
@@ -689,8 +780,8 @@ private fun DashboardMenuSheet(
                     HorizontalDivider(color = TerminalBorder)
                     DashboardMenuItemRow(
                         icon = Icons.Outlined.SimCard,
-                        title = "SIM Management & Diagnostics",
-                        subtitle = "Assign SIM slots & view USSD logs",
+                        title = "Settings & User Profile",
+                        subtitle = "Profile, subscription, SIM slots & diagnostics",
                         onClick = onOpenSimAndDiagnostics
                     )
                     HorizontalDivider(color = TerminalBorder)
@@ -699,13 +790,6 @@ private fun DashboardMenuSheet(
                         title = "USSD Config & Prompt Capture",
                         subtitle = "Manage USSD flow configurations",
                         onClick = onOpenUssdDevMode
-                    )
-                    HorizontalDivider(color = TerminalBorder)
-                    DashboardMenuItemRow(
-                        icon = Icons.Outlined.CreditCard,
-                        title = "Subscription & Paystack",
-                        subtitle = "Manage plan & billing",
-                        onClick = onOpenSubscription
                     )
                 }
             }
@@ -866,18 +950,6 @@ private fun SimStatusBanner(
 }
 
 @Composable
-private fun TrialBannerSection(
-    terminalViewModel: TerminalViewModel,
-    onOpenSubscription: () -> Unit
-) {
-    val subscription by terminalViewModel.subscription.collectAsStateWithLifecycle()
-    TrialSubscriptionBanner(
-        subscription = subscription,
-        onClick = onOpenSubscription
-    )
-}
-
-@Composable
 private fun AmountPhoneInputCard(
     amountText: String,
     phoneText: String,
@@ -901,8 +973,26 @@ private fun AmountPhoneInputCard(
     val phoneTextStyle = remember(textPrimary) {
         TabularPhoneStyle.copy(color = textPrimary, textAlign = TextAlign.Center)
     }
-    val amountKeyboardOptions = remember { KeyboardOptions(keyboardType = KeyboardType.Decimal) }
-    val phoneKeyboardOptions = remember { KeyboardOptions(keyboardType = KeyboardType.Phone) }
+    val amountFocusRequester = remember { FocusRequester() }
+    val phoneFocusRequester = remember { FocusRequester() }
+    val amountKeyboardOptions = remember {
+        KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done)
+    }
+    val phoneKeyboardOptions = remember {
+        KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done)
+    }
+    val amountKeyboardActions = remember(phoneFocusRequester) {
+        KeyboardActions(
+            onDone = { phoneFocusRequester.requestFocus() },
+            onNext = { phoneFocusRequester.requestFocus() }
+        )
+    }
+    val phoneKeyboardActions = remember(amountFocusRequester) {
+        KeyboardActions(
+            onDone = { amountFocusRequester.requestFocus() },
+            onNext = { amountFocusRequester.requestFocus() }
+        )
+    }
     val cursorBrush = remember { SolidColor(EmeraldPrimary) }
 
     EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
@@ -937,6 +1027,7 @@ private fun AmountPhoneInputCard(
                         onValueChange = onAmountChange,
                         singleLine = true,
                         keyboardOptions = amountKeyboardOptions,
+                        keyboardActions = amountKeyboardActions,
                         textStyle = amountTextStyle,
                         cursorBrush = cursorBrush,
                         decorationBox = { inner ->
@@ -951,7 +1042,9 @@ private fun AmountPhoneInputCard(
                             }
                             inner()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(amountFocusRequester)
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -988,6 +1081,7 @@ private fun AmountPhoneInputCard(
                         onValueChange = onPhoneChange,
                         singleLine = true,
                         keyboardOptions = phoneKeyboardOptions,
+                        keyboardActions = phoneKeyboardActions,
                         textStyle = phoneTextStyle,
                         cursorBrush = cursorBrush,
                         decorationBox = { inner ->
@@ -1004,6 +1098,7 @@ private fun AmountPhoneInputCard(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .focusRequester(phoneFocusRequester)
                             .onFocusChanged { focusState ->
                                 if (!focusState.isFocused) {
                                     onDismissPhoneSuggestions()
@@ -1197,13 +1292,13 @@ private fun DashboardActionGrid(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         TerminalActionButton(
-            label = "DATA",
+            label = "MoMo Data",
             icon = Icons.Outlined.Wifi,
             onClick = onData,
             modifier = Modifier.weight(1f)
         )
         TerminalActionButton(
-            label = "AIRTIME",
+            label = "MoMo Airtime",
             icon = Icons.Outlined.PhoneAndroid,
             onClick = onAirtime,
             modifier = Modifier.weight(1f)
@@ -1440,17 +1535,17 @@ private fun SubscriptionGateDialog(
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Subscription Required") },
+        title = { Text("Active Subscription Required") },
         text = {
             Text(
-                "Your 7-day free trial or subscription has expired. Your transaction history and reports remain accessible offline, and you can renew anytime via Paystack."
+                "An active subscription or free trial is required to use EasyMoMo features. Open your User Profile in Settings to check your status and subscribe or renew."
             )
         },
         confirmButton = {
-            TextButton(onClick = onRenew) { Text("Renew Subscription") }
+            TextButton(onClick = onRenew) { Text("Open User Profile") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Later") }
+            TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
 }
@@ -1465,6 +1560,12 @@ private fun InlineUssdDialog(
     onOpenSimAndDiagnostics: () -> Unit
 ) {
     val ussdState by terminalViewModel.ussdState.collectAsStateWithLifecycle()
+    val repeatState by terminalViewModel.customUssdRepeatState.collectAsStateWithLifecycle()
+    val batch = repeatState
+    val canShowBatchNextControls = ussdState is UssdSessionState.Completed ||
+        ussdState is UssdSessionState.ManualInterventionRequired ||
+        ussdState is UssdSessionState.TimedOut
+    val activeNextBatch = batch?.takeIf { it.isBatch && it.hasMoreRuns && canShowBatchNextControls }
     val txHeader = remember(activeTransaction, selectedSimLabel, isAccessibilityEnabled) {
         activeTransaction?.let { tx ->
             buildString {
@@ -1478,6 +1579,9 @@ private fun InlineUssdDialog(
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = {
+            if (batch?.countdownSeconds != null) {
+                return@AlertDialog
+            }
             when (ussdState) {
                 is UssdSessionState.Completed,
                 is UssdSessionState.Cancelled,
@@ -1495,6 +1599,48 @@ private fun InlineUssdDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (batch != null && batch.isBatch) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedShape8)
+                            .background(EmeraldPrimaryContainer)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(EmeraldPrimary)
+                                .padding(horizontal = 10.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "Run ${batch.currentRun} of ${batch.totalRuns}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        val batchStatusText = when {
+                            batch.countdownSeconds != null ->
+                                "Starting Run ${batch.nextRunNumber} of ${batch.totalRuns} in ${batch.countdownSeconds}s..."
+                            batch.pausedOnError ->
+                                "Batch paused after error on Run ${batch.currentRun} of ${batch.totalRuns}."
+                            batch.awaitingDialogClose && batch.hasMoreRuns ->
+                                "Finish this USSD dialog — Run ${batch.nextRunNumber} of ${batch.totalRuns} will start automatically when it closes, or tap Run Next."
+                            !batch.hasMoreRuns ->
+                                "Final run (${batch.currentRun} of ${batch.totalRuns}) in progress."
+                            else ->
+                                "Running ${batch.currentRun} of ${batch.totalRuns}..."
+                        }
+                        Text(
+                            text = batchStatusText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (batch.pausedOnError) StatusError else OnEmeraldPrimaryContainer
+                        )
+                    }
+                }
                 txHeader?.let { header ->
                     Text(
                         text = header,
@@ -1638,14 +1784,38 @@ private fun InlineUssdDialog(
                             }
                             Text(label)
                         }
+                        if (activeNextBatch != null) {
+                            TextButton(onClick = terminalViewModel::runNextCustomUssdRepeatNow) {
+                                Text(
+                                    text = "Run Next (${activeNextBatch.nextRunNumber}/${activeNextBatch.totalRuns})",
+                                    color = EmeraldPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            TextButton(onClick = terminalViewModel::dismissInlineUssd) {
+                                Text("Done")
+                            }
+                        }
+                    }
+                }
+                is UssdSessionState.Completed,
+                is UssdSessionState.TimedOut -> {
+                    if (activeNextBatch != null) {
+                        TextButton(onClick = terminalViewModel::runNextCustomUssdRepeatNow) {
+                            Text(
+                                text = "Run Next (${activeNextBatch.nextRunNumber}/${activeNextBatch.totalRuns})",
+                                color = EmeraldPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
                         TextButton(onClick = terminalViewModel::dismissInlineUssd) {
                             Text("Done")
                         }
                     }
                 }
-                is UssdSessionState.Completed,
                 is UssdSessionState.Cancelled,
-                is UssdSessionState.TimedOut,
                 is UssdSessionState.ConfigurationRequired,
                 is UssdSessionState.PausedForPinAuthorization,
                 UssdSessionState.Idle -> {
@@ -1657,26 +1827,32 @@ private fun InlineUssdDialog(
             }
         },
         dismissButton = {
-            when (ussdState) {
-                is UssdSessionState.WaitingForCustomerApproval -> {
-                    TextButton(onClick = terminalViewModel::dismissInlineUssd) {
-                        Text("Keep Pending")
-                    }
+            if (activeNextBatch != null) {
+                TextButton(onClick = terminalViewModel::dismissInlineUssd) {
+                    Text("Stop Batch", color = StatusError)
                 }
-                is UssdSessionState.Initiating,
-                is UssdSessionState.AwaitingPrompt,
-                is UssdSessionState.PausedForOperationalId,
-                is UssdSessionState.WaitingUserConfirmation -> {
-                    TextButton(
-                        onClick = {
-                            terminalViewModel.cancelUssdSession()
-                            terminalViewModel.dismissInlineUssd()
+            } else {
+                when (ussdState) {
+                    is UssdSessionState.WaitingForCustomerApproval -> {
+                        TextButton(onClick = terminalViewModel::dismissInlineUssd) {
+                            Text("Keep Pending")
                         }
-                    ) {
-                        Text("Cancel", color = StatusError)
                     }
+                    is UssdSessionState.Initiating,
+                    is UssdSessionState.AwaitingPrompt,
+                    is UssdSessionState.PausedForOperationalId,
+                    is UssdSessionState.WaitingUserConfirmation -> {
+                        TextButton(
+                            onClick = {
+                                terminalViewModel.cancelUssdSession()
+                                terminalViewModel.dismissInlineUssd()
+                            }
+                        ) {
+                            Text("Cancel", color = StatusError)
+                        }
+                    }
+                    else -> Unit
                 }
-                else -> Unit
             }
         }
     )
@@ -1705,6 +1881,279 @@ private fun AccessibilityPromptDialog(
         dismissButton = {
             TextButton(onClick = onDialManually) {
                 Text("Dial Manually")
+            }
+        }
+    )
+}
+
+@Composable
+private fun CustomUssdPickerDialog(
+    flows: List<SimpleCustomUssdFlow>,
+    onDismiss: () -> Unit,
+    onRunFlow: (SimpleCustomUssdFlow, Int) -> Unit,
+    onEditFlow: (SimpleCustomUssdFlow) -> Unit,
+    onCreateNew: () -> Unit
+) {
+    var repeatCountText by remember { mutableStateOf("1") }
+    val repeatCount = CustomUssdRepeatCoordinator.clampRepeatCount(repeatCountText.toIntOrNull() ?: 1)
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Custom USSD",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Use the custom USSD feature to process EVD, data bundling, mash-up, and more.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = if (flows.isEmpty()) {
+                        "No saved custom USSDs yet. Tap below to create one, then enter your amount & phone number on Home to run it."
+                    } else {
+                        "Tap a saved custom USSD below to run it with the amount and phone number entered on Home."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedShape8,
+                    color = TerminalBackground,
+                    border = BorderStroke(1.dp, TerminalBorder)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Number of times to run",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val canDecrement = repeatCount > CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT
+                            Surface(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedShape8)
+                                    .clickable(enabled = canDecrement) {
+                                        repeatCountText = CustomUssdRepeatCoordinator
+                                            .clampRepeatCount(repeatCount - 1)
+                                            .toString()
+                                    },
+                                shape = RoundedShape8,
+                                color = TerminalSurface,
+                                border = BorderStroke(1.dp, TerminalBorder)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "−",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (canDecrement) TextPrimary else TextMuted
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = repeatCountText,
+                                onValueChange = { raw ->
+                                    val digits = raw.filter { it.isDigit() }.take(2)
+                                    if (digits.isEmpty()) {
+                                        repeatCountText = ""
+                                    } else {
+                                        val parsed = digits.toIntOrNull() ?: 1
+                                        repeatCountText = when {
+                                            parsed > CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT ->
+                                                CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT.toString()
+                                            parsed < CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT ->
+                                                CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT.toString()
+                                            else -> digits
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    color = TextPrimary
+                                ),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Number,
+                                    imeAction = ImeAction.Done
+                                ),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = EmeraldPrimary,
+                                    unfocusedBorderColor = TerminalBorder,
+                                    focusedContainerColor = TerminalSurface,
+                                    unfocusedContainerColor = TerminalSurface,
+                                    cursorColor = EmeraldPrimary
+                                ),
+                                modifier = Modifier.width(68.dp)
+                            )
+                            val canIncrement = repeatCount < CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT
+                            Surface(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedShape8)
+                                    .clickable(enabled = canIncrement) {
+                                        repeatCountText = CustomUssdRepeatCoordinator
+                                            .clampRepeatCount(repeatCount + 1)
+                                            .toString()
+                                    },
+                                shape = RoundedShape8,
+                                color = TerminalSurface,
+                                border = BorderStroke(1.dp, TerminalBorder)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "+",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (canIncrement) TextPrimary else TextMuted
+                                    )
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(1, 2, 3, 5).forEach { count ->
+                                val selected = repeatCount == count
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 32.dp)
+                                        .clip(RoundedShape6)
+                                        .clickable { repeatCountText = count.toString() },
+                                    shape = RoundedShape6,
+                                    color = if (selected) EmeraldPrimaryContainer else TerminalSurface,
+                                    border = BorderStroke(1.dp, if (selected) EmeraldPrimary else TerminalBorder)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "${count}x",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (selected) OnEmeraldPrimaryContainer else TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (repeatCount > 1) {
+                            Text(
+                                text = "Will run $repeatCount times back-to-back as each USSD dialog closes.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldPrimary
+                            )
+                        }
+                    }
+                }
+
+                if (flows.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        flows.forEach { flow ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onRunFlow(flow, repeatCount) },
+                                shape = RoundedShape8,
+                                color = TerminalBackground,
+                                border = BorderStroke(1.dp, TerminalBorder)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = flow.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${flow.operationType.label} • SIM ${flow.simSlotIndex + 1}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = EmeraldPrimary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = flow.formulaPreview,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondary,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    IconButton(onClick = { onEditFlow(flow) }) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edit ${flow.name}",
+                                            tint = TextSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onCreateNew,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedShape8,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EmeraldPrimary,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = "CREATE / EDIT CUSTOM USSD",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
             }
         }
     )

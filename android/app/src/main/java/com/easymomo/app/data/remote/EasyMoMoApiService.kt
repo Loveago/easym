@@ -6,11 +6,14 @@ import com.easymomo.app.data.remote.dto.CustomerSyncRequest
 import com.easymomo.app.data.remote.dto.CustomerSyncResponse
 import com.easymomo.app.data.remote.dto.CustomerSyncStatusDto
 import com.easymomo.app.data.remote.dto.DataBundlesResponse
+import com.easymomo.app.data.remote.dto.GoogleAuthConfigResponse
+import com.easymomo.app.data.remote.dto.GoogleAuthRequest
 import com.easymomo.app.data.remote.dto.InitializePaymentRequest
 import com.easymomo.app.data.remote.dto.InitializePaymentResponse
 import com.easymomo.app.data.remote.dto.LoginRequest
 import com.easymomo.app.data.remote.dto.PaymentsResponse
 import com.easymomo.app.data.remote.dto.PlansResponse
+import com.easymomo.app.data.remote.dto.ProfileResponse
 import com.easymomo.app.data.remote.dto.RegisterRequest
 import com.easymomo.app.data.remote.dto.SubscriptionStatusWrapper
 import com.easymomo.app.data.remote.dto.SyncTransactionsRequest
@@ -31,6 +34,18 @@ interface EasyMoMoApiService {
 
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
+
+    @GET("auth/google/config")
+    suspend fun getGoogleAuthConfig(): Response<GoogleAuthConfigResponse>
+
+    @POST("auth/google")
+    suspend fun googleAuth(@Body request: GoogleAuthRequest): Response<AuthResponse>
+
+    @POST("auth/logout")
+    suspend fun logout(): Response<Unit>
+
+    @GET("auth/me")
+    suspend fun getProfile(): Response<ProfileResponse>
 
     @GET("subscriptions/status")
     suspend fun getSubscriptionStatus(): Response<SubscriptionStatusWrapper>

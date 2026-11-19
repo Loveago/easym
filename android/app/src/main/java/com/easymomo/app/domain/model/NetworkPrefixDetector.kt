@@ -2,7 +2,7 @@ package com.easymomo.app.domain.model
 
 object NetworkPrefixDetector {
 
-    private val mtnPrefixes = setOf("024", "054", "055", "059", "053")
+    private val mtnPrefixes = setOf("024", "025", "053", "054", "055", "059")
     private val atPrefixes = setOf("027", "057", "026", "056")
     private val telecelPrefixes = setOf("020", "050")
 

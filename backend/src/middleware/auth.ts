@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { AccountStatus, UserRole } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma } from '../config/prisma';
+import { verifyAndRegisterDevice } from '../services/deviceLimitService';
 import { AppError } from './errorHandler';
 
 export interface AuthenticatedUser {
@@ -68,6 +69,14 @@ export async function requireAuth(
 
     if (user.accountStatus === AccountStatus.SUSPENDED) {
       throw new AppError(403, 'ACCOUNT_SUSPENDED', 'Your account has been suspended');
+    }
+
+    const headerDeviceId = req.headers['x-device-id'];
+    const deviceId = Array.isArray(headerDeviceId) ? headerDeviceId[0] : headerDeviceId;
+    const headerDeviceName = req.headers['x-device-name'];
+    const deviceName = Array.isArray(headerDeviceName) ? headerDeviceName[0] : headerDeviceName;
+    if (deviceId && user.role !== UserRole.ADMIN && req.path !== '/logout') {
+      await verifyAndRegisterDevice(user.id, deviceId, deviceName, prisma);
     }
 
     req.user = user;

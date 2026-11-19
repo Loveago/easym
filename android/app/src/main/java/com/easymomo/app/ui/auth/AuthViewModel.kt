@@ -21,7 +21,9 @@ data class AuthUiState(
     val paymentHistory: List<PaymentHistoryDto> = emptyList(),
     val pendingCheckoutUrl: String? = null,
     val pendingReference: String? = null,
-    val checkoutStatusMessage: String? = null
+    val checkoutStatusMessage: String? = null,
+    val googleSignInEnabled: Boolean = false,
+    val googleClientId: String = ""
 )
 
 class AuthViewModel(
@@ -45,6 +47,40 @@ class AuthViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun setError(message: String) {
+        _uiState.update { it.copy(isLoading = false, errorMessage = message) }
+    }
+
+    fun loadGoogleAuthConfig() {
+        viewModelScope.launch {
+            repo.getGoogleAuthConfig()
+                .onSuccess { cfg ->
+                    _uiState.update {
+                        it.copy(
+                            googleSignInEnabled = cfg.enabled && cfg.clientId.isNotBlank(),
+                            googleClientId = cfg.clientId.trim()
+                        )
+                    }
+                }
+        }
+    }
+
+    fun signInWithGoogle(idToken: String, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            repo.signInWithGoogle(idToken)
+                .onSuccess {
+                    _uiState.update { it.copy(isLoading = false) }
+                    onSuccess()
+                }
+                .onFailure { err ->
+                    _uiState.update {
+                        it.copy(isLoading = false, errorMessage = err.message ?: "Google Sign-In failed")
+                    }
+                }
+        }
     }
 
     fun login(identifier: String, password: String, onSuccess: () -> Unit) {
@@ -112,7 +148,7 @@ class AuthViewModel(
     fun loadSubscriptionDetails() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            repo.refreshSubscriptionStatus()
+            repo.refreshProfileAndSubscription()
             val plansResult = repo.getPlans()
             val historyResult = repo.getPaymentHistory()
             _uiState.update {
@@ -120,7 +156,7 @@ class AuthViewModel(
                     isLoading = false,
                     plans = plansResult.getOrDefault(it.plans),
                     paymentHistory = historyResult.getOrDefault(it.paymentHistory),
-                    errorMessage = plansResult.exceptionOrNull()?.message
+                    errorMessage = if (repo.isDebugGuestSession()) null else plansResult.exceptionOrNull()?.message
                 )
             }
         }
@@ -175,7 +211,7 @@ class AuthViewModel(
                         }
                     }
             } else {
-                repo.refreshSubscriptionStatus()
+                repo.refreshProfileAndSubscription()
                 _uiState.update { it.copy(isLoading = false) }
             }
         }

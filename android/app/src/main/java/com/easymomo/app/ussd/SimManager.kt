@@ -8,6 +8,7 @@ import android.telephony.SubscriptionManager
 import com.easymomo.app.data.local.AgentSettings
 import com.easymomo.app.data.local.SavedSimSelection
 import com.easymomo.app.data.local.SimPreferencesStore
+import com.easymomo.app.data.local.SimSelectionStore
 import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionType
 import java.security.MessageDigest
@@ -54,7 +55,7 @@ data class NetworkSimResolution(
  */
 class SimManager(
     private val context: Context,
-    private val simPreferencesStore: SimPreferencesStore,
+    private val simPreferencesStore: SimSelectionStore,
     private val permissionManager: PermissionCapabilityManager
 ) {
 
@@ -115,9 +116,12 @@ class SimManager(
      * - Single SIM: automatically assigns the only active SIM.
      * - Dual SIM: requires explicit assignment per network; detects removed/replaced SIMs.
      */
-    suspend fun reconcileAllNetworks(): Map<NetworkType, NetworkSimResolution> {
-        val perms = permissionManager.checkAll()
-        val activeSims = getActiveSims()
+    suspend fun reconcileAllNetworks(
+        activeSimsOverride: List<ActiveSimInfo>? = null,
+        permsOverride: PermissionReport? = null
+    ): Map<NetworkType, NetworkSimResolution> {
+        val perms = permsOverride ?: permissionManager.checkAll()
+        val activeSims = activeSimsOverride ?: getActiveSims()
         val networks = listOf(NetworkType.MTN, NetworkType.AT, NetworkType.TELECEL)
 
         return networks.associateWith { net ->
@@ -137,11 +141,23 @@ class SimManager(
     ): NetworkSimResolution {
         val perms = permissionManager.checkAll()
         val activeSims = getActiveSims()
+        return resolveForNetworkAndFeature(network, transactionType, activeSims, perms)
+    }
+
+    internal suspend fun resolveForNetworkAndFeature(
+        network: NetworkType,
+        transactionType: TransactionType,
+        activeSims: List<ActiveSimInfo>,
+        perms: PermissionReport
+    ): NetworkSimResolution {
         if (perms.readPhoneState != CapabilityStatus.GRANTED || activeSims.isEmpty()) {
             return resolveForNetwork(network, activeSims, perms)
         }
         val featureSaved = simPreferencesStore.getFeatureSelection(network, transactionType)
-            ?: return resolveForNetwork(network, activeSims, perms)
+        if (featureSaved == null) {
+            // Fall back to the assigned per-network SIM (or single-SIM auto-selection / dual-SIM prompt).
+            return resolveForNetwork(network, activeSims, perms)
+        }
 
         val matched = activeSims.firstOrNull { matchesSaved(it, featureSaved) }
             ?: return NetworkSimResolution(
@@ -262,17 +278,7 @@ class SimManager(
     }
 
     suspend fun assignSimToNetwork(network: NetworkType, sim: ActiveSimInfo) {
-        simPreferencesStore.saveSelection(
-            SavedSimSelection(
-                network = network,
-                subscriptionId = sim.subscriptionId,
-                slotIndex = sim.slotIndex,
-                carrierName = sim.carrierName,
-                displayName = sim.displayName,
-                iccIdHash = sim.iccIdHash,
-                isEmbedded = sim.isEmbedded
-            )
-        )
+        simPreferencesStore.saveSelection(sim.toSavedSelection(network))
     }
 
     val telecelOperationalIdFlow = simPreferencesStore.telecelOperationalIdFlow
@@ -282,20 +288,49 @@ class SimManager(
     suspend fun assignSimToFeature(network: NetworkType, type: TransactionType, sim: ActiveSimInfo) {
         simPreferencesStore.saveFeatureSelection(
             type = type,
-            selection = SavedSimSelection(
-                network = network,
-                subscriptionId = sim.subscriptionId,
-                slotIndex = sim.slotIndex,
-                carrierName = sim.carrierName,
-                displayName = sim.displayName,
-                iccIdHash = sim.iccIdHash,
-                isEmbedded = sim.isEmbedded
-            )
+            selection = sim.toSavedSelection(network)
         )
     }
 
     suspend fun clearFeatureAssignment(network: NetworkType, type: TransactionType) {
         simPreferencesStore.clearFeatureSelection(network, type)
+    }
+
+    suspend fun assignSimToAllFeatures(network: NetworkType, sim: ActiveSimInfo) {
+        simPreferencesStore.saveFeatureSelectionsForNetwork(
+            types = SimPreferencesStore.featuresForNetwork(network),
+            selection = sim.toSavedSelection(network)
+        )
+    }
+
+    suspend fun saveAllSimConfiguration(
+        networkSelections: Map<NetworkType, ActiveSimInfo?>,
+        featureSelections: Map<Pair<NetworkType, TransactionType>, ActiveSimInfo?>
+    ) {
+        val savedNetworks = networkSelections.mapValues { (network, sim) ->
+            sim?.toSavedSelection(network)
+        }
+        val savedFeatures = featureSelections.mapValues { (key, sim) ->
+            sim?.toSavedSelection(key.first)
+        }
+        simPreferencesStore.saveAllSimConfiguration(savedNetworks, savedFeatures)
+    }
+
+    private fun ActiveSimInfo.toSavedSelection(network: NetworkType) = SavedSimSelection(
+        network = network,
+        subscriptionId = subscriptionId,
+        slotIndex = slotIndex,
+        carrierName = carrierName,
+        displayName = displayName,
+        iccIdHash = iccIdHash,
+        isEmbedded = isEmbedded
+    )
+
+    suspend fun clearAllFeatureAssignments(network: NetworkType) {
+        simPreferencesStore.clearFeatureSelectionsForNetwork(
+            network = network,
+            types = SimPreferencesStore.featuresForNetwork(network)
+        )
     }
 
     suspend fun updateAgentSettings(transform: (AgentSettings) -> AgentSettings) {

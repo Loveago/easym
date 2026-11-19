@@ -130,8 +130,28 @@ interface CustomerNumberDao {
     @Query("DELETE FROM customer_numbers WHERE ownerUserId = :ownerUserId")
     suspend fun deleteAllForOwner(ownerUserId: String)
 
-    @Query("DELETE FROM customer_numbers WHERE ownerUserId IS NOT NULL AND ownerUserId != :currentUserId")
+    @Query(
+        """
+        DELETE FROM customer_numbers
+        WHERE ownerUserId IS NOT NULL
+          AND ownerUserId != 'debug-guest-agent'
+          AND ownerUserId != :currentUserId
+        """
+    )
     suspend fun deleteOtherAccountRecords(currentUserId: String)
+
+    @Query(
+        """
+        UPDATE customer_numbers
+        SET ownerUserId = :ownerUserId,
+            syncStatus = CASE WHEN deletedAt IS NOT NULL THEN 'PENDING_DELETE' ELSE 'PENDING_UPLOAD' END
+        WHERE ownerUserId IS NULL OR ownerUserId = 'debug-guest-agent'
+        """
+    )
+    suspend fun adoptUnownedOrGuestRecords(ownerUserId: String)
+
+    @Query("SELECT COUNT(*) FROM customer_numbers WHERE deletedAt IS NULL")
+    suspend fun getActiveCount(): Int
 
     @Query("SELECT COUNT(*) FROM customer_numbers WHERE deletedAt IS NULL")
     fun observeActiveCount(): Flow<Int>

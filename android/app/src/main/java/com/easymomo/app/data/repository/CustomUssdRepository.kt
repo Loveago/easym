@@ -9,6 +9,9 @@ import com.easymomo.app.ussd.capture.CaptureSessionStatus
 import com.easymomo.app.ussd.capture.CustomFlowStatus
 import com.easymomo.app.ussd.capture.CustomFlowStepDraft
 import com.easymomo.app.ussd.capture.CustomStepPlaceholderType
+import com.easymomo.app.ussd.capture.CustomUssdFlowBuilder
+import com.easymomo.app.ussd.capture.CustomUssdOperationType
+import com.easymomo.app.ussd.capture.SimpleCustomUssdFlow
 import com.easymomo.app.ussd.capture.UssdCaptureBridge
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -16,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -223,6 +227,131 @@ class CustomUssdRepository(
 
     suspend fun deleteCustomFlow(flowId: String) {
         customUssdDao.deleteCustomFlow(flowId)
+    }
+
+    fun observeSimpleCustomFlows(): Flow<List<SimpleCustomUssdFlow>> =
+        observeAllCustomFlows().map { list -> list.map(::toSimpleFlow) }
+
+    suspend fun saveSimpleCustomUssd(
+        existingId: String?,
+        flowName: String,
+        operationType: CustomUssdOperationType,
+        steps: List<String>,
+        oneTimeCode: String,
+        simSlotIndex: Int
+    ): CustomUssdFlowEntity {
+        val now = System.currentTimeMillis()
+        val cleanSteps = steps.map { it.trim() }.filter { it.isNotEmpty() }
+        val cleanOneTime = oneTimeCode.trim()
+        val entryCode = when (operationType) {
+            CustomUssdOperationType.STEP_BY_STEP -> cleanSteps.firstOrNull().orEmpty()
+            CustomUssdOperationType.ONE_TIME -> cleanOneTime
+        }
+        val stepDrafts = when (operationType) {
+            CustomUssdOperationType.STEP_BY_STEP -> cleanSteps.mapIndexed { idx, token ->
+                val stepType = when {
+                    token.equals(CustomUssdFlowBuilder.VAR_PHONE, ignoreCase = true) ->
+                        CustomStepPlaceholderType.CUSTOMER_NUMBER_PROMPT
+                    token.equals(CustomUssdFlowBuilder.VAR_AMOUNT, ignoreCase = true) ->
+                        CustomStepPlaceholderType.AMOUNT_PROMPT
+                    else -> CustomStepPlaceholderType.MENU_SELECTION
+                }
+                CustomFlowStepDraft(
+                    sequence = idx + 1,
+                    stepType = stepType,
+                    label = token,
+                    promptPreview = token,
+                    isSensitive = false,
+                    value = token
+                )
+            }
+            CustomUssdOperationType.ONE_TIME -> listOf(
+                CustomFlowStepDraft(
+                    sequence = 1,
+                    stepType = CustomStepPlaceholderType.MENU_SELECTION,
+                    label = cleanOneTime,
+                    promptPreview = cleanOneTime,
+                    isSensitive = false,
+                    value = cleanOneTime
+                )
+            )
+        }
+        val preview = CustomUssdFlowBuilder.formatPreview(operationType, cleanSteps, cleanOneTime)
+        val existing = existingId?.let { customUssdDao.getCustomFlowById(it) }
+        val entity = if (existing != null) {
+            existing.copy(
+                flowName = flowName.trim(),
+                network = "SIM_${simSlotIndex + 1}",
+                entryCode = entryCode,
+                serviceDescription = preview,
+                transactionCategory = operationType.name,
+                status = CustomFlowStatus.VERIFIED.name,
+                enabled = true,
+                stepsJson = gson.toJson(stepDrafts),
+                stepCount = stepDrafts.size,
+                flowVersion = existing.flowVersion + 1,
+                updatedAt = now
+            )
+        } else {
+            CustomUssdFlowEntity(
+                id = UUID.randomUUID().toString(),
+                flowName = flowName.trim(),
+                network = "SIM_${simSlotIndex + 1}",
+                entryCode = entryCode,
+                serviceDescription = preview,
+                transactionCategory = operationType.name,
+                status = CustomFlowStatus.VERIFIED.name,
+                enabled = true,
+                sourceCaptureSessionId = null,
+                stepsJson = gson.toJson(stepDrafts),
+                stepCount = stepDrafts.size,
+                flowVersion = 1,
+                createdAt = now,
+                updatedAt = now
+            )
+        }
+        customUssdDao.insertCustomFlow(entity)
+        return entity
+    }
+
+    fun toSimpleFlow(entity: CustomUssdFlowEntity): SimpleCustomUssdFlow {
+        val opType = if (entity.transactionCategory == CustomUssdOperationType.ONE_TIME.name) {
+            CustomUssdOperationType.ONE_TIME
+        } else {
+            CustomUssdOperationType.STEP_BY_STEP
+        }
+        val slotIndex = when (entity.network.uppercase()) {
+            "SIM_2" -> 1
+            else -> 0
+        }
+        val parsedSteps = parseSteps(entity.stepsJson)
+            .map { it.value.ifBlank { it.label }.trim() }
+            .filter { it.isNotEmpty() }
+            .let { tokens ->
+                if (opType == CustomUssdOperationType.STEP_BY_STEP &&
+                    entity.entryCode.isNotBlank() &&
+                    tokens.firstOrNull() != entity.entryCode
+                ) {
+                    listOf(entity.entryCode) + tokens
+                } else {
+                    tokens
+                }
+            }
+        val oneTime = if (opType == CustomUssdOperationType.ONE_TIME) {
+            entity.entryCode.ifBlank { parsedSteps.firstOrNull().orEmpty() }
+        } else {
+            ""
+        }
+        val preview = CustomUssdFlowBuilder.formatPreview(opType, parsedSteps, oneTime)
+        return SimpleCustomUssdFlow(
+            id = entity.id,
+            name = entity.flowName,
+            operationType = opType,
+            steps = parsedSteps,
+            oneTimeCode = oneTime,
+            simSlotIndex = slotIndex,
+            formulaPreview = preview
+        )
     }
 
     fun parseSteps(stepsJson: String): List<CustomFlowStepDraft> {

@@ -8,6 +8,7 @@ import com.easymomo.app.data.local.UssdCaptureEventEntity
 import com.easymomo.app.data.local.UssdCaptureSessionEntity
 import com.easymomo.app.data.repository.CustomUssdRepository
 import com.easymomo.app.domain.model.NetworkType
+import com.easymomo.app.ussd.ActiveSimInfo
 import com.easymomo.app.ussd.PermissionCapabilityManager
 import com.easymomo.app.ussd.SimManager
 import com.easymomo.app.ussd.SimResolutionStatus
@@ -16,7 +17,11 @@ import com.easymomo.app.ussd.UssdLauncher
 import com.easymomo.app.ussd.capture.CaptureSessionStatus
 import com.easymomo.app.ussd.capture.CustomFlowStepDraft
 import com.easymomo.app.ussd.capture.CustomStepPlaceholderType
+import com.easymomo.app.ussd.capture.CustomUssdFlowBuilder
+import com.easymomo.app.ussd.capture.CustomUssdOperationType
+import com.easymomo.app.ussd.capture.SimpleCustomUssdFlow
 import com.easymomo.app.ussd.capture.UssdCaptureBridge
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,6 +78,17 @@ data class CustomUssdUiState(
     ),
     val manualError: String? = null,
 
+    // Simplified Custom USSD Builder & Saved List
+    val simpleFlows: List<SimpleCustomUssdFlow> = emptyList(),
+    val activeSims: List<ActiveSimInfo> = emptyList(),
+    val editingFlowId: String? = null,
+    val builderName: String = "",
+    val builderOperationType: CustomUssdOperationType = CustomUssdOperationType.STEP_BY_STEP,
+    val builderSteps: List<String> = emptyList(),
+    val builderOneTimeCode: String = "",
+    val builderSimSlotIndex: Int = 0,
+    val builderError: String? = null,
+
     // Feedback
     val statusMessage: String? = null,
     val errorMessage: String? = null
@@ -82,7 +98,8 @@ class CustomUssdViewModel(
     private val repository: CustomUssdRepository,
     private val simManager: SimManager,
     private val ussdLauncher: UssdLauncher,
-    private val permissionManager: PermissionCapabilityManager
+    private val permissionManager: PermissionCapabilityManager,
+    private val hasActiveAccess: () -> Boolean = { true }
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CustomUssdUiState())
@@ -112,6 +129,12 @@ class CustomUssdViewModel(
             }
         }
         viewModelScope.launch {
+            repository.observeSimpleCustomFlows().collectLatest { flows ->
+                _uiState.update { it.copy(simpleFlows = flows) }
+            }
+        }
+        refreshActiveSims()
+        viewModelScope.launch {
             UssdCaptureBridge.recorder.activeSession.collectLatest { session ->
                 _uiState.update { it.copy(activeSession = session) }
                 if (session != null && session.status == CaptureSessionStatus.RECORDING.name) {
@@ -140,7 +163,7 @@ class CustomUssdViewModel(
     }
 
     fun refreshCapturePrerequisites() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val accessibilityOk = permissionManager.isAccessibilityServiceEnabled()
             val network = toNetworkType(_uiState.value.setupNetwork)
             val simResolution = if (network != NetworkType.UNKNOWN) {
@@ -183,6 +206,12 @@ class CustomUssdViewModel(
     }
 
     fun startCapture() {
+        if (!hasActiveAccess()) {
+            _uiState.update {
+                it.copy(setupError = "An active subscription or free trial is required. Open Settings → User Profile to subscribe.")
+            }
+            return
+        }
         val state = _uiState.value
         val name = state.setupFlowName.trim()
         val entryCode = state.setupEntryCode.trim()
@@ -388,6 +417,12 @@ class CustomUssdViewModel(
     }
 
     fun saveManualDraft() {
+        if (!hasActiveAccess()) {
+            _uiState.update {
+                it.copy(manualError = "An active subscription or free trial is required. Open Settings → User Profile to subscribe.")
+            }
+            return
+        }
         val state = _uiState.value
         val name = state.manualFlowName.trim()
         val entryCode = state.manualEntryCode.trim()
@@ -458,6 +493,196 @@ class CustomUssdViewModel(
         }
     }
 
+    // Simplified Custom USSD Builder Actions
+    fun refreshActiveSims() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val sims = simManager.getActiveSims()
+            _uiState.update { state ->
+                val validSlot = if (sims.any { it.slotIndex == state.builderSimSlotIndex }) {
+                    state.builderSimSlotIndex
+                } else {
+                    sims.firstOrNull()?.slotIndex ?: 0
+                }
+                state.copy(activeSims = sims, builderSimSlotIndex = validSlot)
+            }
+        }
+    }
+
+    fun updateBuilderName(value: String) {
+        _uiState.update { it.copy(builderName = value, builderError = null) }
+    }
+
+    fun updateBuilderOperationType(type: CustomUssdOperationType) {
+        _uiState.update { it.copy(builderOperationType = type, builderError = null) }
+    }
+
+    fun addBuilderStep(raw: String): Boolean {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) {
+            _uiState.update { it.copy(builderError = "Enter a USSD step or select a quick variable.") }
+            return false
+        }
+        if (CustomUssdFlowBuilder.containsSensitivePinHint(trimmed)) {
+            _uiState.update {
+                it.copy(builderError = "For security reasons, do not include PIN codes in custom USSD steps.")
+            }
+            return false
+        }
+        _uiState.update { state ->
+            state.copy(
+                builderSteps = state.builderSteps + trimmed,
+                builderError = null
+            )
+        }
+        return true
+    }
+
+    fun moveBuilderStepUp(index: Int) {
+        _uiState.update { state ->
+            if (index !in 1 until state.builderSteps.size) return@update state
+            val mutable = state.builderSteps.toMutableList()
+            val item = mutable.removeAt(index)
+            mutable.add(index - 1, item)
+            state.copy(builderSteps = mutable, builderError = null)
+        }
+    }
+
+    fun moveBuilderStepDown(index: Int) {
+        _uiState.update { state ->
+            if (index !in 0 until (state.builderSteps.size - 1)) return@update state
+            val mutable = state.builderSteps.toMutableList()
+            val item = mutable.removeAt(index)
+            mutable.add(index + 1, item)
+            state.copy(builderSteps = mutable, builderError = null)
+        }
+    }
+
+    fun removeBuilderStep(index: Int) {
+        _uiState.update { state ->
+            if (index !in state.builderSteps.indices) return@update state
+            val mutable = state.builderSteps.toMutableList()
+            mutable.removeAt(index)
+            state.copy(builderSteps = mutable, builderError = null)
+        }
+    }
+
+    fun clearBuilderSteps() {
+        _uiState.update { it.copy(builderSteps = emptyList(), builderError = null) }
+    }
+
+    fun updateBuilderOneTimeCode(value: String) {
+        _uiState.update { it.copy(builderOneTimeCode = value, builderError = null) }
+    }
+
+    fun appendOneTimeVariable(variable: String) {
+        _uiState.update { state ->
+            val current = state.builderOneTimeCode.trimEnd()
+            val updated = when {
+                current.isEmpty() -> variable
+                current.endsWith("*") -> "$current$variable"
+                current.endsWith("#") -> current.dropLast(1) + "*$variable#"
+                else -> "$current*$variable"
+            }
+            state.copy(builderOneTimeCode = updated, builderError = null)
+        }
+    }
+
+    fun selectBuilderSimSlot(slotIndex: Int) {
+        _uiState.update { it.copy(builderSimSlotIndex = slotIndex, builderError = null) }
+    }
+
+    fun startEditingSimpleFlow(flow: SimpleCustomUssdFlow) {
+        _uiState.update {
+            it.copy(
+                editingFlowId = flow.id,
+                builderName = flow.name,
+                builderOperationType = flow.operationType,
+                builderSteps = flow.steps,
+                builderOneTimeCode = flow.oneTimeCode,
+                builderSimSlotIndex = flow.simSlotIndex,
+                builderError = null,
+                statusMessage = null
+            )
+        }
+    }
+
+    fun resetBuilder() {
+        _uiState.update { state ->
+            state.copy(
+                editingFlowId = null,
+                builderName = "",
+                builderOperationType = CustomUssdOperationType.STEP_BY_STEP,
+                builderSteps = emptyList(),
+                builderOneTimeCode = "",
+                builderSimSlotIndex = state.activeSims.firstOrNull()?.slotIndex ?: 0,
+                builderError = null,
+                statusMessage = null
+            )
+        }
+    }
+
+    fun saveBuilderFlow(onSaved: () -> Unit = {}) {
+        if (!hasActiveAccess()) {
+            _uiState.update {
+                it.copy(builderError = "An active subscription or free trial is required. Open Settings → User Profile to subscribe.")
+            }
+            return
+        }
+        val state = _uiState.value
+        val validationError = CustomUssdFlowBuilder.validate(
+            name = state.builderName,
+            operationType = state.builderOperationType,
+            steps = state.builderSteps,
+            oneTimeCode = state.builderOneTimeCode
+        )
+        if (validationError != null) {
+            _uiState.update { it.copy(builderError = validationError) }
+            return
+        }
+        val wasEditing = state.editingFlowId != null
+        viewModelScope.launch {
+            repository.saveSimpleCustomUssd(
+                existingId = state.editingFlowId,
+                flowName = state.builderName,
+                operationType = state.builderOperationType,
+                steps = state.builderSteps,
+                oneTimeCode = state.builderOneTimeCode,
+                simSlotIndex = state.builderSimSlotIndex
+            )
+            _uiState.update {
+                it.copy(
+                    editingFlowId = null,
+                    builderName = "",
+                    builderOperationType = CustomUssdOperationType.STEP_BY_STEP,
+                    builderSteps = emptyList(),
+                    builderOneTimeCode = "",
+                    builderError = null,
+                    statusMessage = if (wasEditing) "Custom USSD updated!" else "Custom USSD saved!"
+                )
+            }
+            onSaved()
+        }
+    }
+
+    fun deleteSimpleFlow(flowId: String) {
+        viewModelScope.launch {
+            repository.deleteCustomFlow(flowId)
+            _uiState.update { state ->
+                if (state.editingFlowId == flowId) {
+                    state.copy(
+                        editingFlowId = null,
+                        builderName = "",
+                        builderSteps = emptyList(),
+                        builderOneTimeCode = "",
+                        statusMessage = "Custom USSD deleted."
+                    )
+                } else {
+                    state.copy(statusMessage = "Custom USSD deleted.")
+                }
+            }
+        }
+    }
+
     fun clearMessages() {
         _uiState.update { it.copy(statusMessage = null, errorMessage = null) }
     }
@@ -493,11 +718,12 @@ class CustomUssdViewModel(
         private val repository: CustomUssdRepository,
         private val simManager: SimManager,
         private val ussdLauncher: UssdLauncher,
-        private val permissionManager: PermissionCapabilityManager
+        private val permissionManager: PermissionCapabilityManager,
+        private val hasActiveAccess: () -> Boolean = { true }
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return CustomUssdViewModel(repository, simManager, ussdLauncher, permissionManager) as T
+            return CustomUssdViewModel(repository, simManager, ussdLauncher, permissionManager, hasActiveAccess) as T
         }
     }
 }

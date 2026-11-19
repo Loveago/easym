@@ -31,13 +31,22 @@ class UssdResultDetector(
         "not registered",
         "does not exist",
         "invalid account",
-        "invalid mobile"
+        "invalid mobile",
+        "account holder not found",
+        "merchant not found",
+        "number not found",
+        "not found"
     )
 
     private val pendingKeywords = listOf(
         "being processed",
         "pending",
         "awaiting",
+        "customer must",
+        "customer to",
+        "subscriber to approve",
+        "tell customer",
+        "ask customer",
         "you will receive an sms",
         "confirmation sms"
     )
@@ -50,6 +59,13 @@ class UssdResultDetector(
         "cancelled",
         "wrong pin",
         "invalid pin",
+        "incorrect pin",
+        "incorrect mm pin",
+        "incorrect momo pin",
+        "pin blocked",
+        "account blocked",
+        "not allowed",
+        "unauthorized",
         "exceeded limit"
     )
 
@@ -68,20 +84,7 @@ class UssdResultDetector(
         val norm = promptMatcher.normalize(rawResponse)
         val ref = extractReference(rawResponse)
 
-        // 1. Check step-configured prompts first (if verified and not placeholders)
-        if (finalStep != null) {
-            if (matchesAny(norm, finalStep.failurePrompts)) {
-                return UssdOutcome(OutcomeCategory.FAILED, rawResponse, ref, rawResponse.trim())
-            }
-            if (matchesAny(norm, finalStep.pendingPrompts)) {
-                return UssdOutcome(OutcomeCategory.PENDING, rawResponse, ref, rawResponse.trim())
-            }
-            if (matchesAny(norm, finalStep.successPrompts)) {
-                return UssdOutcome(OutcomeCategory.SUCCESSFUL, rawResponse, ref, rawResponse.trim())
-            }
-        }
-
-        // 2. Check specific failure / pending / success indicators
+        // 1. Check specific failure indicators first so generic nouns in successPrompts never mask errors
         return when {
             insufficientBalanceKeywords.any { norm.contains(it) } ->
                 UssdOutcome(OutcomeCategory.INSUFFICIENT_BALANCE, rawResponse, ref, rawResponse.trim())
@@ -89,8 +92,14 @@ class UssdResultDetector(
                 UssdOutcome(OutcomeCategory.INVALID_RECIPIENT, rawResponse, ref, rawResponse.trim())
             failureKeywords.any { norm.contains(it) } ->
                 UssdOutcome(OutcomeCategory.FAILED, rawResponse, ref, rawResponse.trim())
+            finalStep != null && matchesAny(norm, finalStep.failurePrompts) ->
+                UssdOutcome(OutcomeCategory.FAILED, rawResponse, ref, rawResponse.trim())
             pendingKeywords.any { norm.contains(it) } ->
                 UssdOutcome(OutcomeCategory.PENDING, rawResponse, ref, rawResponse.trim())
+            finalStep != null && matchesAny(norm, finalStep.pendingPrompts) ->
+                UssdOutcome(OutcomeCategory.PENDING, rawResponse, ref, rawResponse.trim())
+            finalStep != null && matchesAny(norm, finalStep.successPrompts) ->
+                UssdOutcome(OutcomeCategory.SUCCESSFUL, rawResponse, ref, rawResponse.trim())
             successKeywords.any { norm.contains(it) } ->
                 UssdOutcome(OutcomeCategory.SUCCESSFUL, rawResponse, ref, rawResponse.trim())
             else ->

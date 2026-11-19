@@ -27,7 +27,7 @@ export async function requireActiveEntitlement(
       throw new AppError(
         402,
         'SUBSCRIPTION_REQUIRED',
-        'Your 7-day free trial or subscription has expired. Please renew to continue.',
+        'An active subscription or free trial is required to use this feature. Please subscribe or renew to continue.',
         { entitlement },
       );
     }

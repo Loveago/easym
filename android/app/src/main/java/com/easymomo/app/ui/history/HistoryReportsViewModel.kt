@@ -40,7 +40,8 @@ data class HistoryFilterState(
 )
 
 class HistoryReportsViewModel(
-    private val txRepo: TransactionRepository
+    private val txRepo: TransactionRepository,
+    private val hasActiveAccess: () -> Boolean = { true }
 ) : ViewModel() {
 
     private val _filter = MutableStateFlow(HistoryFilterState())
@@ -82,6 +83,10 @@ class HistoryReportsViewModel(
     }
 
     fun syncNow() {
+        if (!hasActiveAccess()) {
+            _syncMessage.value = "Active subscription or trial required to sync."
+            return
+        }
         viewModelScope.launch {
             txRepo.syncPendingTransactions()
                 .onSuccess { count ->
@@ -137,8 +142,12 @@ class HistoryReportsViewModel(
         return cal.timeInMillis to now
     }
 
-    class Factory(private val txRepo: TransactionRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val txRepo: TransactionRepository,
+        private val hasActiveAccess: () -> Boolean = { true }
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = HistoryReportsViewModel(txRepo) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            HistoryReportsViewModel(txRepo, hasActiveAccess) as T
     }
 }

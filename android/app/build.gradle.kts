@@ -7,30 +7,57 @@ plugins {
 
 android {
     namespace = "com.easymomo.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.easymomo.app"
+        applicationId = "com.easy.momo"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 36
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Backend API base URL (overridable via gradle.properties or BuildConfig)
-        buildConfigField("String", "API_BASE_URL", "\"https://backend-omega-blue-30.vercel.app/api/\"")
+        // Backend API base URL (overridable via -PAPI_BASE_URL or gradle.properties)
+        val configuredApiBaseUrl = (project.findProperty("API_BASE_URL") as? String)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "https://backend-omega-blue-30.vercel.app/api/"
+        val normalizedApiBaseUrl = if (configuredApiBaseUrl.endsWith("/")) {
+            configuredApiBaseUrl
+        } else {
+            "$configuredApiBaseUrl/"
+        }
+        buildConfigField("String", "API_BASE_URL", "\"$normalizedApiBaseUrl\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(
+                (project.findProperty("RELEASE_STORE_FILE") as? String)
+                    ?: "easymomo-release-key.jks"
+            )
+            storePassword = (project.findProperty("RELEASE_STORE_PASSWORD") as? String)
+                ?: "EasyMoMo@2026!"
+            keyAlias = (project.findProperty("RELEASE_KEY_ALIAS") as? String)
+                ?: "easymomo"
+            keyPassword = (project.findProperty("RELEASE_KEY_PASSWORD") as? String)
+                ?: "EasyMoMo@2026!"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 
     buildTypes {
         debug {
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/\"")
+            isDebuggable = true
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -104,6 +131,9 @@ dependencies {
     implementation(libs.work.runtime.ktx)
     implementation(libs.security.crypto)
     implementation(libs.browser)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services)
+    implementation(libs.googleid)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

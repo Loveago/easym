@@ -6,12 +6,28 @@ data class RegisterRequest(
     val fullName: String,
     val phone: String,
     val email: String,
-    val password: String
+    val password: String,
+    val deviceId: String? = null,
+    val deviceName: String? = null
 )
 
 data class LoginRequest(
     val identifier: String,
-    val password: String
+    val password: String,
+    val deviceId: String? = null,
+    val deviceName: String? = null
+)
+
+data class GoogleAuthConfigResponse(
+    val enabled: Boolean = false,
+    val clientId: String = ""
+)
+
+data class GoogleAuthRequest(
+    val idToken: String,
+    val phone: String? = null,
+    val deviceId: String? = null,
+    val deviceName: String? = null
 )
 
 data class AuthResponse(
@@ -25,7 +41,8 @@ data class UserDto(
     val fullName: String,
     val email: String,
     val phone: String,
-    val accountStatus: String = "ACTIVE"
+    val accountStatus: String = "ACTIVE",
+    val createdAt: String? = null
 )
 
 data class SubscriptionStatusDto(
@@ -35,7 +52,14 @@ data class SubscriptionStatusDto(
     val paidUntil: String? = null,
     val currentPlanId: String? = null,
     val currentPlanName: String? = null,
-    val remainingDays: Int = 0
+    val remainingDays: Int = 0,
+    val recurringAuthorized: Boolean = false,
+    val displayMessage: String? = null
+)
+
+data class ProfileResponse(
+    val user: UserDto,
+    val entitlement: SubscriptionStatusDto
 )
 
 data class SubscriptionStatusWrapper(

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
+import { requireActiveEntitlement } from '../middleware/entitlement';
 import { validate } from '../middleware/validate';
 import {
   clearCustomersForAgent,
@@ -13,7 +14,7 @@ import {
 const router = Router();
 
 // Strict account isolation: every route requires verified JWT and scopes strictly to req.user!.id
-router.use(requireAuth);
+router.use(requireAuth, requireActiveEntitlement);
 
 const customerSyncItemSchema = z
   .object({

@@ -25,7 +25,6 @@ import com.easymomo.app.ui.history.HistoryReportsViewModel
 import com.easymomo.app.ui.history.HistoryScreen
 import com.easymomo.app.ui.history.ReportsScreen
 import com.easymomo.app.ui.settings.SimAndDiagnosticsScreen
-import com.easymomo.app.ui.subscription.SubscriptionScreen
 import com.easymomo.app.ui.terminal.CustomUssdScreen
 import com.easymomo.app.ui.terminal.CustomerLedCashOutScreen
 import com.easymomo.app.ui.terminal.CustomersScreen
@@ -64,14 +63,18 @@ class MainActivity : ComponentActivity() {
                 )
             )
             val historyVm: HistoryReportsViewModel = viewModel(
-                factory = HistoryReportsViewModel.Factory(app.transactionRepository)
+                factory = HistoryReportsViewModel.Factory(
+                    app.transactionRepository,
+                    hasActiveAccess = { app.authRepository.subscription.value.hasActiveAccess() }
+                )
             )
             val customUssdVm: CustomUssdViewModel = viewModel(
                 factory = CustomUssdViewModel.Factory(
                     app.customUssdRepository,
                     app.simManager,
                     app.ussdLauncher,
-                    app.permissionManager
+                    app.permissionManager,
+                    hasActiveAccess = { app.authRepository.subscription.value.hasActiveAccess() }
                 )
             )
             authViewModelRef = authVm
@@ -103,7 +106,6 @@ private object Routes {
     const val ONBOARDING = "onboarding"
     const val AUTH = "auth"
     const val DASHBOARD = "dashboard"
-    const val SUBSCRIPTION = "subscription"
     const val REVIEW = "review"
     const val PROCESSING = "processing"
     const val CUSTOMER_LED = "customer_led"
@@ -116,7 +118,10 @@ private object Routes {
     const val CUSTOMERS = "customers"
     const val HELP = "help"
     const val USSD_DEV = "ussd_dev"
-    const val SIM_DIAGNOSTICS = "sim_diagnostics"
+    const val SIM_DIAGNOSTICS = "sim_diagnostics?expandBilling={expandBilling}"
+
+    fun simDiagnosticsRoute(expandBilling: Boolean = false) =
+        "sim_diagnostics?expandBilling=$expandBilling"
 }
 
 @Composable
@@ -175,14 +180,19 @@ private fun EasyMoMoNavGraph(
         composable(Routes.DASHBOARD) {
             DashboardScreen(
                 terminalViewModel = terminalViewModel,
+                customUssdViewModel = customUssdViewModel,
                 onOpenHelp = { navController.navigate(Routes.HELP) },
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
                 onOpenCustomers = { navController.navigate(Routes.CUSTOMERS) },
                 onOpenMerchant = { navController.navigate(Routes.MERCHANT) },
                 onOpenReports = { navController.navigate(Routes.REPORTS) },
-                onOpenSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
+                onOpenUserProfileInSettings = {
+                    navController.navigate(Routes.simDiagnosticsRoute(expandBilling = true))
+                },
                 onOpenUssdDevMode = { navController.navigate(Routes.USSD_DEV) },
-                onOpenSimAndDiagnostics = { navController.navigate(Routes.SIM_DIAGNOSTICS) },
+                onOpenSimAndDiagnostics = {
+                    navController.navigate(Routes.simDiagnosticsRoute(expandBilling = false))
+                },
                 onOpenDataBundles = { net -> navController.navigate("data_bundles/${net.code}") },
                 onOpenCustomUssd = { navController.navigate(Routes.CUSTOM_USSD) },
                 onNavigateToReview = { _, _ -> navController.navigate(Routes.REVIEW) },
@@ -193,13 +203,6 @@ private fun EasyMoMoNavGraph(
                         }
                     }
                 }
-            )
-        }
-
-        composable(Routes.SUBSCRIPTION) {
-            SubscriptionScreen(
-                authViewModel = authViewModel,
-                onBack = { navController.popBackStack() }
             )
         }
 
@@ -327,7 +330,16 @@ private fun EasyMoMoNavGraph(
             )
         }
 
-        composable(Routes.SIM_DIAGNOSTICS) {
+        composable(
+            route = Routes.SIM_DIAGNOSTICS,
+            arguments = listOf(
+                navArgument("expandBilling") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { backStack ->
+            val expandBilling = backStack.arguments?.getBoolean("expandBilling") ?: false
             val ctx = androidx.compose.ui.platform.LocalContext.current
             val app = ctx.applicationContext as EasyMoMoApplication
             val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -336,7 +348,9 @@ private fun EasyMoMoNavGraph(
                 terminalViewModel.refreshDeviceStatus()
             }
             SimAndDiagnosticsScreen(
+                authViewModel = authViewModel,
                 terminalViewModel = terminalViewModel,
+                initialExpandBilling = expandBilling,
                 onRequestPermissions = {
                     val perms = app.permissionManager.requiredUssdPermissions()
                     app.permissionManager.markPermissionRequested(perms)

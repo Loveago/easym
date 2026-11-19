@@ -1,7 +1,54 @@
 import { CustomerNumber, PrismaClient } from '@prisma/client';
+import { env } from '../config/env';
 import { prisma as defaultPrisma } from '../config/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { decryptText, encryptText, hashNormalizedPhone } from '../utils/crypto';
+
+let schemaEnsured = false;
+
+async function ensureCustomerNumbersTable(db: PrismaClient): Promise<void> {
+  if (schemaEnsured || env.NODE_ENV === 'test') return;
+  const rawExec = (db as unknown as { $executeRawUnsafe?: (sql: string) => Promise<unknown> })
+    .$executeRawUnsafe;
+  if (typeof rawExec !== 'function') return;
+  try {
+    await rawExec.call(
+      db,
+      `CREATE TABLE IF NOT EXISTS "customer_numbers" (
+        "id" TEXT NOT NULL,
+        "user_id" TEXT NOT NULL,
+        "phone_hash" TEXT NOT NULL,
+        "encrypted_normalized_phone" TEXT NOT NULL,
+        "encrypted_display_phone" TEXT NOT NULL,
+        "encrypted_nickname" TEXT,
+        "first_used_at" TIMESTAMP(3) NOT NULL,
+        "last_used_at" TIMESTAMP(3) NOT NULL,
+        "usage_count" INTEGER NOT NULL DEFAULT 1,
+        "version" INTEGER NOT NULL DEFAULT 1,
+        "deleted_at" TIMESTAMP(3),
+        "synced_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "customer_numbers_pkey" PRIMARY KEY ("id")
+      )`,
+    );
+    await rawExec.call(
+      db,
+      `CREATE UNIQUE INDEX IF NOT EXISTS "customer_numbers_user_id_phone_hash_key" ON "customer_numbers"("user_id", "phone_hash")`,
+    );
+    await rawExec.call(
+      db,
+      `CREATE INDEX IF NOT EXISTS "customer_numbers_user_id_updated_at_idx" ON "customer_numbers"("user_id", "updated_at")`,
+    );
+    await rawExec.call(
+      db,
+      `CREATE INDEX IF NOT EXISTS "customer_numbers_user_id_deleted_at_idx" ON "customer_numbers"("user_id", "deleted_at")`,
+    );
+    schemaEnsured = true;
+  } catch {
+    // Table already exists or managed by migration
+  }
+}
 
 export interface CustomerSyncInput {
   cloudId?: string | null;
@@ -69,14 +116,20 @@ export async function syncCustomerBatch(
   items: CustomerSyncInput[],
   db: PrismaClient = defaultPrisma,
 ): Promise<{ synced: CustomerSyncDto[]; serverTime: number }> {
+  await ensureCustomerNumbersTable(db);
   const results: CustomerSyncDto[] = [];
   const now = new Date();
+  let invalidCount = 0;
 
   for (const item of items) {
     const rawCandidate = (item.normalizedPhoneNumber || item.phoneNumber || '').trim();
     const normalized = normalizeGhanaPhone(rawCandidate);
     if (!isValidGhanaPhone(normalized)) {
-      throw new AppError(400, 'INVALID_PHONE', 'One or more customer phone numbers are invalid.');
+      invalidCount++;
+      if (items.length === 1) {
+        throw new AppError(400, 'INVALID_PHONE', 'One or more customer phone numbers are invalid.');
+      }
+      continue;
     }
 
     const displayPhone = item.phoneNumber.trim() || normalized;
@@ -164,6 +217,10 @@ export async function syncCustomerBatch(
     results.push(toDto(updated));
   }
 
+  if (results.length === 0 && invalidCount > 0) {
+    throw new AppError(400, 'INVALID_PHONE', 'One or more customer phone numbers are invalid.');
+  }
+
   return { synced: results, serverTime: now.getTime() };
 }
 
@@ -177,6 +234,7 @@ export async function listCustomersForAgent(
   hasMore: boolean;
   serverTime: number;
 }> {
+  await ensureCustomerNumbersTable(db);
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
   const where: Record<string, unknown> = { userId };
 
@@ -247,6 +305,7 @@ export async function getCustomerSyncStatus(
   userId: string,
   db: PrismaClient = defaultPrisma,
 ) {
+  await ensureCustomerNumbersTable(db);
   const [activeCount, deletedCount, latest] = await Promise.all([
     db.customerNumber.count({ where: { userId, deletedAt: null } }),
     db.customerNumber.count({ where: { userId, deletedAt: { not: null } } }),

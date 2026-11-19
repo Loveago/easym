@@ -8,7 +8,7 @@ async function main() {
     {
       code: 'MONTHLY',
       name: 'Monthly Agent Plan',
-      price: '50.00',
+      price: '9.00',
       currency: 'GHS',
       billingInterval: BillingInterval.MONTHLY,
       durationDays: 30,
@@ -16,20 +16,11 @@ async function main() {
     },
     {
       code: 'QUARTERLY',
-      name: 'Quarterly Agent Plan',
-      price: '135.00',
+      name: '3-Month Agent Plan',
+      price: '25.00',
       currency: 'GHS',
       billingInterval: BillingInterval.QUARTERLY,
       durationDays: 90,
-      active: true,
-    },
-    {
-      code: 'ANNUAL',
-      name: 'Annual Agent Plan',
-      price: '480.00',
-      currency: 'GHS',
-      billingInterval: BillingInterval.ANNUAL,
-      durationDays: 365,
       active: true,
     },
   ];
@@ -37,7 +28,14 @@ async function main() {
   for (const plan of plans) {
     await prisma.subscriptionPlan.upsert({
       where: { code: plan.code },
-      update: {},
+      update: {
+        name: plan.name,
+        price: plan.price,
+        currency: plan.currency,
+        billingInterval: plan.billingInterval,
+        durationDays: plan.durationDays,
+        active: plan.active,
+      },
       create: plan,
     });
   }

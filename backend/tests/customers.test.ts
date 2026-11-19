@@ -1,9 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app';
 import { env } from '../src/config/env';
+import { prisma } from '../src/config/prisma';
 import {
   deleteCustomerForAgent,
   listCustomersForAgent,
@@ -248,11 +249,13 @@ describe('Cloud Customer Sync Service & Security', () => {
     const unauth = await request(app).get('/api/customers');
     expect(unauth.status).toBe(401);
 
+    const userSpy = vi.spyOn(prisma.user, 'findUnique').mockResolvedValueOnce(null as never);
     const token = jwt.sign({ sub: 'fake-user', role: 'AGENT' }, env.JWT_SECRET);
     const badSync = await request(app)
       .post('/api/customers/sync')
       .set('Authorization', `Bearer ${token}`)
       .send({ customers: [] });
+    userSpy.mockRestore();
     expect([400, 401]).toContain(badSync.status);
   });
 });

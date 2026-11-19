@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma as defaultPrisma } from '../config/prisma';
+import { TRIAL_DURATION_DAYS } from './trialService';
 
 export interface SettingDefinition {
   key: string;
@@ -37,7 +38,14 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     label: 'Free Trial Duration (Days)',
     isSecret: false,
     description: 'Number of free trial days granted to newly registered agents.',
-    defaultValue: '7',
+    defaultValue: '15',
+  },
+  {
+    key: 'GOOGLE_CLIENT_ID',
+    label: 'Google OAuth Web Client ID',
+    isSecret: false,
+    description: 'Google Cloud OAuth 2.0 Web Client ID used for Android Google Sign-In / Sign-Up (no .env required).',
+    defaultValue: '',
   },
   {
     key: 'SUPPORT_PHONE',
@@ -103,6 +111,32 @@ export async function getEffectivePaystackConfig(db: PrismaClient = defaultPrism
     publicKey: map.get('PAYSTACK_PUBLIC_KEY') || '',
     callbackUrl: map.get('PAYSTACK_CALLBACK_URL') || env.PAYSTACK_CALLBACK_URL,
   };
+}
+
+export async function getEffectiveTrialDays(db: PrismaClient = defaultPrisma): Promise<number> {
+  if (db === defaultPrisma && env.NODE_ENV === 'test') return TRIAL_DURATION_DAYS;
+  try {
+    const row = await (db as unknown as {
+      systemSetting?: { findUnique?: (a: unknown) => Promise<{ value: string } | null> };
+    })?.systemSetting?.findUnique?.({ where: { key: 'TRIAL_DAYS' }, select: { value: true } });
+    const parsed = Number.parseInt(row?.value?.trim() ?? '', 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 365) return parsed;
+  } catch {
+    // fall back to default
+  }
+  return TRIAL_DURATION_DAYS;
+}
+
+export async function getEffectiveGoogleClientId(db: PrismaClient = defaultPrisma): Promise<string> {
+  if (db === defaultPrisma && env.NODE_ENV === 'test') return '';
+  try {
+    const row = await (db as unknown as {
+      systemSetting?: { findUnique?: (a: unknown) => Promise<{ value: string } | null> };
+    })?.systemSetting?.findUnique?.({ where: { key: 'GOOGLE_CLIENT_ID' }, select: { value: true } });
+    return row?.value?.trim() ?? '';
+  } catch {
+    return '';
+  }
 }
 
 export async function listAdminSettings(db: PrismaClient = defaultPrisma) {

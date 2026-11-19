@@ -42,6 +42,9 @@ class TransactionRepository(
         @SerializedName("flows") val flows: List<UssdFlowProfile>
     )
 
+    private val flowProfileCache =
+        java.util.concurrent.ConcurrentHashMap<String, Pair<Long, UssdFlowProfile>>()
+
     fun observeRecentTransactions(limit: Int = 5): Flow<List<TransactionEntity>> =
         transactionDao.observeRecentTransactions(limit)
 
@@ -108,6 +111,54 @@ class TransactionRepository(
         }
         onCustomerSyncNeeded?.invoke()
         return recordId
+    }
+
+    suspend fun saveCustomerNumberManually(
+        rawPhone: String,
+        nickname: String?
+    ): Result<CustomerNumberEntity> {
+        return runCatching {
+            val dao = customerNumberDao
+                ?: throw IllegalStateException("Customer storage unavailable.")
+            if (!NetworkPrefixDetector.isValidGhanaPhone(rawPhone)) {
+                throw IllegalArgumentException("Enter a valid 10-digit Ghana mobile number (e.g. 0244123456).")
+            }
+            val normalized = NetworkPrefixDetector.normalizeGhanaPhone(rawPhone)
+            val cleanNick = nickname?.trim()?.takeIf { it.isNotEmpty() }
+            val now = System.currentTimeMillis()
+            val ownerId = currentUserIdProvider?.invoke()
+            val existing = dao.getByNormalizedPhone(normalized)
+            val saved = if (existing != null) {
+                val updated = existing.copy(
+                    phoneNumber = normalized,
+                    nickname = cleanNick ?: existing.nickname,
+                    lastUsedAt = maxOf(existing.lastUsedAt, now),
+                    usageCount = if (existing.deletedAt != null) 1 else existing.usageCount,
+                    ownerUserId = ownerId ?: existing.ownerUserId,
+                    syncStatus = "PENDING_UPLOAD",
+                    updatedAt = now,
+                    deletedAt = null
+                )
+                dao.upsert(updated)
+                updated
+            } else {
+                val entity = CustomerNumberEntity(
+                    phoneNumber = normalized,
+                    normalizedPhoneNumber = normalized,
+                    nickname = cleanNick,
+                    firstUsedAt = now,
+                    lastUsedAt = now,
+                    usageCount = 1,
+                    ownerUserId = ownerId,
+                    syncStatus = "PENDING_UPLOAD",
+                    updatedAt = now
+                )
+                val newId = dao.insert(entity)
+                entity.copy(id = newId)
+            }
+            onCustomerSyncNeeded?.invoke()
+            saved
+        }
     }
 
     suspend fun searchCustomerNumberSuggestions(rawQuery: String, limit: Int = 5): List<CustomerNumberEntity> {
@@ -305,10 +356,19 @@ class TransactionRepository(
 
     suspend fun getUssdFlowProfile(flowId: String): UssdFlowProfile? {
         val entity = ussdFlowConfigDao.getFlow(flowId) ?: return null
-        return runCatching { gson.fromJson(entity.configJson, UssdFlowProfile::class.java) }.getOrNull()
+        val cached = flowProfileCache[flowId]
+        if (cached != null && cached.first == entity.updatedAt) {
+            return cached.second
+        }
+        val parsed = runCatching { gson.fromJson(entity.configJson, UssdFlowProfile::class.java) }.getOrNull()
+        if (parsed != null) {
+            flowProfileCache[flowId] = entity.updatedAt to parsed
+        }
+        return parsed
     }
 
     suspend fun saveCustomOrVerifiedFlow(profile: UssdFlowProfile) {
+        val now = System.currentTimeMillis()
         val entity = UssdFlowConfigEntity(
             flowId = profile.flowId,
             network = profile.network,
@@ -317,9 +377,10 @@ class TransactionRepository(
             configJson = gson.toJson(profile),
             enabled = profile.enabled,
             lastVerifiedAt = if (profile.verifiedWithSim) java.time.Instant.now().toString() else null,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = now
         )
         ussdFlowConfigDao.upsertFlow(entity)
+        flowProfileCache[profile.flowId] = now to profile
     }
 
     suspend fun seedInitialUssdConfigsIfNeeded(context: Context) {
@@ -357,18 +418,24 @@ class TransactionRepository(
             val flowsResp = api.getUssdFlows()
             if (flowsResp.isSuccessful) {
                 val now = System.currentTimeMillis()
-                val entities = flowsResp.body()?.flows.orEmpty().map { dto ->
+                val entities = mutableListOf<UssdFlowConfigEntity>()
+                for (dto in flowsResp.body()?.flows.orEmpty()) {
                     val flowId = dto.flowId ?: "${dto.network}_${dto.transactionType}"
-                    UssdFlowConfigEntity(
-                        flowId = flowId,
-                        network = dto.network,
-                        transactionType = dto.transactionType,
-                        version = dto.version,
-                        configJson = dto.configuration.toString(),
-                        enabled = dto.enabled,
-                        lastVerifiedAt = dto.lastVerifiedAt,
-                        updatedAt = now
-                    )
+                    val existing = ussdFlowConfigDao.getFlow(flowId)
+                    if (existing == null || existing.version < dto.version) {
+                        entities.add(
+                            UssdFlowConfigEntity(
+                                flowId = flowId,
+                                network = dto.network,
+                                transactionType = dto.transactionType,
+                                version = dto.version,
+                                configJson = dto.configuration.toString(),
+                                enabled = dto.enabled,
+                                lastVerifiedAt = dto.lastVerifiedAt,
+                                updatedAt = now
+                            )
+                        )
+                    }
                 }
                 if (entities.isNotEmpty()) ussdFlowConfigDao.upsertFlows(entities)
             }

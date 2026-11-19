@@ -182,9 +182,28 @@ class CustomerNumberHistoryTest {
         }
 
         override suspend fun deleteOtherAccountRecords(currentUserId: String) {
-            items.removeAll { it.ownerUserId != null && it.ownerUserId != currentUserId }
+            items.removeAll {
+                it.ownerUserId != null &&
+                    it.ownerUserId != "debug-guest-agent" &&
+                    it.ownerUserId != currentUserId
+            }
             emit()
         }
+
+        override suspend fun adoptUnownedOrGuestRecords(ownerUserId: String) {
+            for (i in items.indices) {
+                val cur = items[i]
+                if (cur.ownerUserId == null || cur.ownerUserId == "debug-guest-agent") {
+                    items[i] = cur.copy(
+                        ownerUserId = ownerUserId,
+                        syncStatus = if (cur.deletedAt != null) "PENDING_DELETE" else "PENDING_UPLOAD"
+                    )
+                }
+            }
+            emit()
+        }
+
+        override suspend fun getActiveCount(): Int = items.count { it.deletedAt == null }
 
         override fun observeActiveCount(): Flow<Int> = MutableStateFlow(items.count { it.deletedAt == null })
         override fun observeSyncedCount(): Flow<Int> = MutableStateFlow(items.count { it.deletedAt == null && it.syncStatus == "SYNCED" })

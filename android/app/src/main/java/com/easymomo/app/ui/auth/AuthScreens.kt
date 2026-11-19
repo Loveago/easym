@@ -1,5 +1,6 @@
 package com.easymomo.app.ui.auth
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,12 +19,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material.icons.outlined.PointOfSale
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,18 +42,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.launch
 import com.easymomo.app.BuildConfig
+import com.easymomo.app.R
 import com.easymomo.app.ui.theme.EasyMoMoCard
 import com.easymomo.app.ui.theme.EmeraldPrimary
 import com.easymomo.app.ui.theme.EmeraldPrimaryContainer
@@ -73,9 +87,6 @@ fun SplashScreen(
 ) {
     LaunchedEffect(Unit) {
         delay(650)
-        if (BuildConfig.DEBUG && !authViewModel.isLoggedIn()) {
-            authViewModel.loginAsDebugGuest()
-        }
         when {
             authViewModel.isLoggedIn() -> onNavigateToDashboard()
             !authViewModel.isOnboardingCompleted() -> onNavigateToOnboarding()
@@ -90,20 +101,14 @@ fun SplashScreen(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
+            Image(
+                painter = painterResource(id = R.drawable.easymomo_app_logo),
+                contentDescription = "EasyMoMo",
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(76.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.White.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.PointOfSale,
-                    contentDescription = "EasyMoMo",
-                    tint = Color.White,
-                    modifier = Modifier.size(42.dp)
-                )
-            }
+                    .size(96.dp)
+                    .clip(RoundedCornerShape(22.dp))
+            )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "EasyMoMo",
@@ -168,8 +173,8 @@ fun OnboardingScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 OnboardingFeatureCard(
                     icon = Icons.Outlined.Lock,
-                    title = "Automatic 7-Day Free Trial",
-                    body = "Create your agent account to start a full 7-day free trial immediately—no upfront payment required."
+                    title = "PIN-Protected USSD Automation",
+                    body = "EasyMoMo navigates verified USSD menus and always pauses so you enter your MoMo PIN privately."
                 )
             }
 
@@ -216,8 +221,54 @@ fun AuthScreen(
     authViewModel: AuthViewModel,
     onAuthenticated: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val uiState by authViewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        authViewModel.loadGoogleAuthConfig()
+    }
+
+    val launchGoogleSignIn: () -> Unit = {
+        val clientId = uiState.googleClientId.trim()
+        if (clientId.isBlank()) {
+            authViewModel.setError("Google Sign-In is not configured by the administrator yet.")
+        } else {
+            scope.launch {
+                try {
+                    val credentialManager = CredentialManager.create(context)
+                    val googleIdOption = GetGoogleIdOption.Builder()
+                        .setFilterByAuthorizedAccounts(false)
+                        .setServerClientId(clientId)
+                        .setAutoSelectEnabled(false)
+                        .build()
+                    val request = GetCredentialRequest.Builder()
+                        .addCredentialOption(googleIdOption)
+                        .build()
+                    val result = credentialManager.getCredential(
+                        context = context,
+                        request = request
+                    )
+                    val credential = result.credential
+                    if (credential is CustomCredential &&
+                        credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                    ) {
+                        val googleCred = GoogleIdTokenCredential.createFrom(credential.data)
+                        authViewModel.signInWithGoogle(googleCred.idToken, onAuthenticated)
+                    } else {
+                        authViewModel.setError("Unexpected Google credential response.")
+                    }
+                } catch (_: GetCredentialCancellationException) {
+                    // User cancelled account picker
+                } catch (_: NoCredentialException) {
+                    authViewModel.setError("No Google account found on this device.")
+                } catch (e: Exception) {
+                    authViewModel.setError(e.message ?: "Google Sign-In failed.")
+                }
+            }
+        }
+    }
 
     // Login state
     var loginIdentifier by remember { mutableStateOf("") }
@@ -322,6 +373,26 @@ fun AuthScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (uiState.googleSignInEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            HorizontalDivider(modifier = Modifier.weight(1f))
+                            Text("OR", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            HorizontalDivider(modifier = Modifier.weight(1f))
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = launchGoogleSignIn,
+                            enabled = !uiState.isLoading,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Continue with Google", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     if (BuildConfig.DEBUG) {
                         Spacer(modifier = Modifier.height(10.dp))
                         OutlinedButton(
@@ -338,13 +409,6 @@ fun AuthScreen(
                 }
             } else {
                 EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Includes automatic 7-day free trial upon registration.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = EmeraldPrimary
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = fullName,
                         onValueChange = { fullName = it },
@@ -398,7 +462,7 @@ fun AuthScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     TerminalActionButton(
-                        label = if (uiState.isLoading) "Creating Account..." else "Register & Start 7-Day Trial",
+                        label = if (uiState.isLoading) "Creating Account..." else "Create Account",
                         enabled = !uiState.isLoading,
                         onClick = {
                             authViewModel.register(
@@ -412,6 +476,26 @@ fun AuthScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (uiState.googleSignInEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            HorizontalDivider(modifier = Modifier.weight(1f))
+                            Text("OR", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            HorizontalDivider(modifier = Modifier.weight(1f))
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = launchGoogleSignIn,
+                            enabled = !uiState.isLoading,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Sign up with Google", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }

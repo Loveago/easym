@@ -6,18 +6,18 @@ import {
   getAndSyncEntitlement,
 } from '../src/services/trialService';
 
-describe('Seven-Day Free Trial & Entitlement Service', () => {
+describe('Fifteen-Day Free Trial & Entitlement Service', () => {
   const baseDate = new Date('2026-11-01T10:00:00.000Z');
-  const sevenDaysLater = new Date(
+  const trialEnd = new Date(
     baseDate.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  it('grants access with 7 days remaining when trial just started', () => {
+  it('grants access with 15 days remaining when trial just started', () => {
     const summary = computeEntitlementSummary(
       {
         status: EntitlementStatus.TRIAL,
         trialStartedAt: baseDate,
-        trialExpiresAt: sevenDaysLater,
+        trialExpiresAt: trialEnd,
         paidUntil: null,
         currentPlanId: null,
         recurringAuthorized: false,
@@ -28,17 +28,33 @@ describe('Seven-Day Free Trial & Entitlement Service', () => {
     expect(summary.status).toBe(EntitlementStatus.TRIAL);
     expect(summary.hasAccess).toBe(true);
     expect(summary.isTrial).toBe(true);
-    expect(summary.remainingDays).toBe(7);
-    expect(summary.displayMessage).toBe('7 days remaining');
+    expect(summary.remainingDays).toBe(15);
+    expect(summary.displayMessage).toBe('15 days remaining');
+  });
+
+  it('exposes the current plan name when present', () => {
+    const summary = computeEntitlementSummary(
+      {
+        status: EntitlementStatus.ACTIVE,
+        trialStartedAt: null,
+        trialExpiresAt: null,
+        paidUntil: new Date('2026-12-01T10:00:00.000Z'),
+        currentPlanId: 'plan-1',
+        recurringAuthorized: false,
+        currentPlan: { name: 'Monthly Agent Plan' },
+      },
+      baseDate,
+    );
+    expect(summary.currentPlanName).toBe('Monthly Agent Plan');
   });
 
   it('shows "Trial ends today" when less than 24 hours remain', () => {
-    const almostExpired = new Date(sevenDaysLater.getTime() - 4 * 60 * 60 * 1000);
+    const almostExpired = new Date(trialEnd.getTime() - 4 * 60 * 60 * 1000);
     const summary = computeEntitlementSummary(
       {
         status: EntitlementStatus.TRIAL,
         trialStartedAt: baseDate,
-        trialExpiresAt: sevenDaysLater,
+        trialExpiresAt: trialEnd,
         paidUntil: null,
         currentPlanId: null,
         recurringAuthorized: false,
@@ -52,13 +68,13 @@ describe('Seven-Day Free Trial & Entitlement Service', () => {
     expect(summary.displayMessage).toBe('Trial ends today');
   });
 
-  it('expires trial after 7 days using server UTC time', () => {
-    const afterExpiry = new Date(sevenDaysLater.getTime() + 1000);
+  it('expires trial after 15 days using server UTC time', () => {
+    const afterExpiry = new Date(trialEnd.getTime() + 1000);
     const summary = computeEntitlementSummary(
       {
         status: EntitlementStatus.TRIAL,
         trialStartedAt: baseDate,
-        trialExpiresAt: sevenDaysLater,
+        trialExpiresAt: trialEnd,
         paidUntil: null,
         currentPlanId: null,
         recurringAuthorized: false,
@@ -81,7 +97,7 @@ describe('Seven-Day Free Trial & Entitlement Service', () => {
           userId: 'user-1',
           status: EntitlementStatus.TRIAL,
           trialStartedAt: baseDate,
-          trialExpiresAt: sevenDaysLater,
+          trialExpiresAt: trialEnd,
           paidUntil: null,
           currentPlanId: null,
           recurringAuthorized: false,
@@ -90,7 +106,7 @@ describe('Seven-Day Free Trial & Entitlement Service', () => {
       },
     } as unknown as PrismaClient;
 
-    const afterExpiry = new Date(sevenDaysLater.getTime() + 60_000);
+    const afterExpiry = new Date(trialEnd.getTime() + 60_000);
     const summary = await getAndSyncEntitlement('user-1', afterExpiry, mockDb);
 
     expect(summary.status).toBe(EntitlementStatus.EXPIRED);
@@ -107,7 +123,7 @@ describe('Seven-Day Free Trial & Entitlement Service', () => {
       {
         status: EntitlementStatus.ACTIVE,
         trialStartedAt: baseDate,
-        trialExpiresAt: sevenDaysLater,
+        trialExpiresAt: trialEnd,
         paidUntil,
         currentPlanId: 'plan-1',
         recurringAuthorized: false,
@@ -124,7 +140,7 @@ describe('Seven-Day Free Trial & Entitlement Service', () => {
       {
         status: EntitlementStatus.ACTIVE,
         trialStartedAt: baseDate,
-        trialExpiresAt: sevenDaysLater,
+        trialExpiresAt: trialEnd,
         paidUntil,
         currentPlanId: 'plan-1',
         recurringAuthorized: false,

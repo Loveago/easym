@@ -384,4 +384,229 @@ class UssdFlowControllerTest {
         )
         assertTrue(controlRejected is UssdInputHandler.ValidationResult.Invalid)
     }
+
+    @Test
+    fun `account holder not found mid-flow completes as invalid recipient instead of manual entry`() {
+        val controller = UssdFlowController(responseSender = { false })
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0598516996",
+            amount = "1.00",
+            network = NetworkType.MTN
+        )
+
+        assertTrue(controller.startFlow("tx-err-1", verifiedTestProfile(), vars).isSuccess)
+        controller.onPromptObserved("Account Holder not found.")
+
+        val state = controller.sessionState.value
+        assertTrue("Expected Completed, got $state", state is UssdSessionState.Completed)
+        assertEquals(
+            OutcomeCategory.INVALID_RECIPIENT,
+            (state as UssdSessionState.Completed).outcome.category
+        )
+    }
+
+    @Test
+    fun `resetSession clears active session after pause for pin so new flow can start`() {
+        val sessionManager = UssdSessionManager()
+        val controller = UssdFlowController(
+            sessionManager = sessionManager,
+            responseSender = { true }
+        )
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0244123456",
+            amount = "10",
+            network = NetworkType.MTN
+        )
+
+        assertTrue(controller.startFlow("tx-bal-1", verifiedTestProfile(), vars).isSuccess)
+        controller.onPromptObserved("1. Cash In")
+        controller.onPromptObserved("Enter customer number:")
+        controller.onPromptObserved("Enter amount:")
+        controller.onPromptObserved("Enter PIN:")
+        assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+        assertTrue(sessionManager.getActiveSessionId() != null)
+
+        controller.resetSession()
+        assertEquals(null, sessionManager.getActiveSessionId())
+        assertEquals(UssdSessionState.Idle, controller.sessionState.value)
+        assertTrue(controller.startFlow("tx-bal-2", verifiedTestProfile(), vars).isSuccess)
+    }
+
+    @Test
+    fun `identical consecutive prompts on number and confirm number steps are not dropped`() {
+        val profile = verifiedTestProfile().copy(
+            steps = listOf(
+                UssdFlowStep(id = "START", type = StepType.INITIATE_USSD, nextStepId = "PHONE"),
+                UssdFlowStep(
+                    id = "PHONE",
+                    type = StepType.MATCH_PROMPT,
+                    expectedPrompts = listOf("Enter Mobile Number"),
+                    action = StepAction.SEND_VARIABLE,
+                    variable = "customer_phone",
+                    nextStepId = "CONFIRM_PHONE"
+                ),
+                UssdFlowStep(
+                    id = "CONFIRM_PHONE",
+                    type = StepType.MATCH_PROMPT,
+                    expectedPrompts = listOf("Enter Mobile Number", "number"),
+                    action = StepAction.SEND_VARIABLE,
+                    variable = "customer_phone",
+                    nextStepId = "AMOUNT"
+                ),
+                UssdFlowStep(
+                    id = "AMOUNT",
+                    type = StepType.MATCH_PROMPT,
+                    expectedPrompts = listOf("Enter amount"),
+                    action = StepAction.SEND_VARIABLE,
+                    variable = "amount",
+                    nextStepId = "PIN"
+                ),
+                UssdFlowStep(
+                    id = "PIN",
+                    type = StepType.REQUIRE_AUTHORIZATION,
+                    expectedPrompts = listOf("Enter MM PIN"),
+                    action = StepAction.PAUSE_FOR_PIN,
+                    nextStepId = "RESULT"
+                ),
+                UssdFlowStep(id = "RESULT", type = StepType.MATCH_RESULT)
+            )
+        )
+        val sent = mutableListOf<String>()
+        val controller = UssdFlowController(responseSender = { sent.add(it); true })
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0244123456",
+            amount = "1.00",
+            network = NetworkType.MTN
+        )
+
+        assertTrue(controller.startFlow("tx-dup-1", profile, vars).isSuccess)
+        controller.onPromptObserved("Enter Mobile Number")
+        controller.onPromptObserved("Enter Mobile Number")
+        controller.onPromptObserved("Enter amount (min 1.00):")
+        controller.onPromptObserved("PIN:")
+
+        assertEquals(listOf("0244123456", "0244123456", "1"), sent)
+        assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+    }
+
+    @Test
+    fun `does not false trigger pin pause on authorize menu and surfaces invalid retry error`() {
+        val sent = mutableListOf<String>()
+        val controller = UssdFlowController(responseSender = { sent.add(it); true })
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0244123456",
+            amount = "10",
+            network = NetworkType.MTN
+        )
+
+        assertTrue(controller.startFlow("tx-auth-1", verifiedTestProfile(), vars).isSuccess)
+        controller.onPromptObserved("1. Cash In - Authorize transaction")
+        assertEquals(listOf("1"), sent)
+        assertTrue(controller.sessionState.value is UssdSessionState.AwaitingPrompt)
+
+        controller.onPromptObserved("Invalid input, please try again")
+        assertTrue(controller.sessionState.value is UssdSessionState.ManualInterventionRequired)
+    }
+
+    @Test
+    fun `stale duplicate enter customer number does not prematurely consume confirm customer number`() {
+        val profile = UssdFlowProfile(
+            flowId = "MTN_CASH_OUT",
+            network = "MTN",
+            transactionType = "CASH_OUT",
+            version = 9,
+            entryCode = "*171#",
+            enabled = true,
+            verifiedWithSim = true,
+            steps = listOf(
+                UssdFlowStep(id = "START", type = StepType.INITIATE_USSD, nextStepId = "MAIN_MENU"),
+                UssdFlowStep(
+                    id = "MAIN_MENU",
+                    type = StepType.MATCH_PROMPT,
+                    expectedPrompts = listOf("pay cash out", "cash out"),
+                    action = StepAction.SEND_MENU_OPTION,
+                    menuOption = "2",
+                    nextStepId = "SELECT_USER_TYPE"
+                ),
+                UssdFlowStep(
+                    id = "SELECT_USER_TYPE",
+                    type = StepType.MATCH_PROMPT,
+                    optional = true,
+                    skipToStepId = "ENTER_CUSTOMER_NUMBER",
+                    expectedPrompts = listOf("1.", "1)", "mobile money user", "subscriber"),
+                    action = StepAction.SEND_MENU_OPTION,
+                    menuOption = "1",
+                    nextStepId = "ENTER_CUSTOMER_NUMBER"
+                ),
+                UssdFlowStep(
+                    id = "ENTER_CUSTOMER_NUMBER",
+                    type = StepType.MATCH_PROMPT,
+                    expectedPrompts = listOf("number", "phone", "mobile"),
+                    action = StepAction.SEND_VARIABLE,
+                    variable = "customer_phone",
+                    nextStepId = "CONFIRM_CUSTOMER_NUMBER"
+                ),
+                UssdFlowStep(
+                    id = "CONFIRM_CUSTOMER_NUMBER",
+                    type = StepType.MATCH_PROMPT,
+                    optional = true,
+                    skipToStepId = "ENTER_AMOUNT",
+                    expectedPrompts = listOf("re-enter", "reenter", "repeat", "confirm", "again", "retype", "verify"),
+                    action = StepAction.SEND_VARIABLE,
+                    variable = "customer_phone",
+                    nextStepId = "ENTER_AMOUNT"
+                ),
+                UssdFlowStep(
+                    id = "ENTER_AMOUNT",
+                    type = StepType.MATCH_PROMPT,
+                    expectedPrompts = listOf("amount", "ghs"),
+                    action = StepAction.SEND_VARIABLE,
+                    variable = "amount",
+                    nextStepId = "AUTHORIZE_PIN"
+                ),
+                UssdFlowStep(
+                    id = "AUTHORIZE_PIN",
+                    type = StepType.REQUIRE_AUTHORIZATION,
+                    expectedPrompts = listOf("enter pin", "momo pin", "mm pin", "secret code", "pin"),
+                    action = StepAction.PAUSE_FOR_PIN,
+                    nextStepId = "FINAL_RESULT"
+                ),
+                UssdFlowStep(id = "FINAL_RESULT", type = StepType.MATCH_RESULT)
+            )
+        )
+        val vars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0244123456",
+            amount = "50",
+            network = NetworkType.MTN
+        )
+
+        // Case 1: Stale duplicate re-fires before carrier shows Re-enter customer number
+        val sentWithConfirm = mutableListOf<String>()
+        val controllerWithConfirm = UssdFlowController(responseSender = { sentWithConfirm.add(it); true })
+        assertTrue(controllerWithConfirm.startFlow("tx-stale-1", profile, vars).isSuccess)
+        controllerWithConfirm.onPromptObserved("2. Pay Cash Out")
+        controllerWithConfirm.onPromptObserved("Enter customer number:")
+        // Stale duplicate re-fires immediately after ENTER_CUSTOMER_NUMBER
+        controllerWithConfirm.onPromptObserved("Enter customer number:")
+        assertEquals(listOf("2", "0244123456"), sentWithConfirm)
+        // Real confirmation prompt arrives next and is properly handled by CONFIRM_CUSTOMER_NUMBER
+        controllerWithConfirm.onPromptObserved("Re-enter customer number:")
+        controllerWithConfirm.onPromptObserved("Enter amount:")
+        controllerWithConfirm.onPromptObserved("Enter MM PIN:")
+        assertEquals(listOf("2", "0244123456", "0244123456", "50"), sentWithConfirm)
+        assertTrue(controllerWithConfirm.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+
+        // Case 2: Stale duplicate re-fires before carrier skips directly to Enter amount
+        val sentSkippedConfirm = mutableListOf<String>()
+        val controllerSkippedConfirm = UssdFlowController(responseSender = { sentSkippedConfirm.add(it); true })
+        assertTrue(controllerSkippedConfirm.startFlow("tx-stale-2", profile, vars).isSuccess)
+        controllerSkippedConfirm.onPromptObserved("2. Pay Cash Out")
+        controllerSkippedConfirm.onPromptObserved("Enter customer number:")
+        controllerSkippedConfirm.onPromptObserved("Enter customer number:")
+        assertEquals(listOf("2", "0244123456"), sentSkippedConfirm)
+        controllerSkippedConfirm.onPromptObserved("Enter amount:")
+        controllerSkippedConfirm.onPromptObserved("Enter MM PIN:")
+        assertEquals(listOf("2", "0244123456", "50"), sentSkippedConfirm)
+        assertTrue(controllerSkippedConfirm.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+    }
 }

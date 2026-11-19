@@ -4,13 +4,37 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M34,34h40c3.3,0 6,2.7 6,6v28c0,3.3 -2.7,6 -6,6H34c-3.3,0 -6,-2.7 -6,-6V40C28,36.7 30.7,34 34,34z" />
+
+    <!-- Inner Emerald Terminal Shield inside Adaptive Icon 66x66 safe zone -->
     <path
         android:fillColor="#0B6E4F"
-        android:pathData="M36,42h36v12H36z" />
+        android:strokeColor="#6EE7B7"
+        android:strokeWidth="1.2"
+        android:pathData="M34,22 L74,22 C80.6,22 86,27.4 86,34 L86,74 C86,80.6 80.6,86 74,86 L34,86 C27.4,86 22,80.6 22,74 L22,34 C22,27.4 27.4,22 34,22 Z" />
+
+    <!-- Left White 'M' Pillar & Wing -->
     <path
-        android:fillColor="#E09F3E"
-        android:pathData="M38,60h12v6H38zM54,60h16v6H54z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,69 L33,41 C33,38.5 36,37.2 37.8,39 L54,54.5 L48.2,60.3 L41.5,53.6 L41.5,69 C41.5,71.2 39.6,73 37.2,73 C34.9,73 33,71.2 33,69 Z" />
+
+    <!-- Right Ghanaian Gold 'M' Pillar & Wing -->
+    <path
+        android:fillColor="#FFCC00"
+        android:pathData="M75,69 L75,41 C75,38.5 72,37.2 70.2,39 L48.2,60.3 L54,66 L66.5,53.6 L66.5,69 C66.5,71.2 68.4,73 70.8,73 C73.1,73 75,71.2 75,69 Z" />
+
+    <!-- Central Golden USSD Lightning Spark -->
+    <path
+        android:fillColor="#FFE066"
+        android:pathData="M56.5,29 L47.2,44 H54.2 L51,55.2 L62,40 H54.6 L56.5,29 Z" />
+
+    <!-- Tri-Network Signal Bars (MTN Gold, Telecel Red, AT Blue) -->
+    <path
+        android:fillColor="#FFCC00"
+        android:pathData="M41,77.5 L48,77.5 C48.8,77.5 49.5,78.2 49.5,79 C49.5,79.8 48.8,80.5 48,80.5 L41,80.5 C40.2,80.5 39.5,79.8 39.5,79 C39.5,78.2 40.2,77.5 41,77.5 Z" />
+    <path
+        android:fillColor="#FF1E42"
+        android:pathData="M50.5,77.5 L57.5,77.5 C58.3,77.5 59,78.2 59,79 C59,79.8 58.3,80.5 57.5,80.5 L50.5,80.5 C49.7,80.5 49,79.8 49,79 C49,78.2 49.7,77.5 50.5,77.5 Z" />
+    <path
+        android:fillColor="#29B6F6"
+        android:pathData="M60,77.5 L67,77.5 C67.8,77.5 68.5,78.2 68.5,79 C68.5,79.8 67.8,80.5 67,80.5 L60,80.5 C59.2,80.5 58.5,79.8 58.5,79 C58.5,78.2 59.2,77.5 60,77.5 Z" />
 </vector>

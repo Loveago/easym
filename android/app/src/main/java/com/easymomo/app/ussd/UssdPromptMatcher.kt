@@ -35,7 +35,28 @@ class UssdPromptMatcher {
         "invalid mobile number",
         "invalid number",
         "invalid phone",
-        "wrong selection"
+        "invalid amount",
+        "invalid operational",
+        "invalid operator",
+        "invalid reference",
+        "wrong selection",
+        "account holder not found",
+        "merchant not found",
+        "number not found",
+        "not registered",
+        "does not exist",
+        "invalid account",
+        "invalid merchant",
+        "invalid recipient",
+        "invalid pin",
+        "wrong pin",
+        "incorrect pin",
+        "pin blocked",
+        "insufficient balance",
+        "insufficient funds",
+        "exceeded limit",
+        "transaction failed",
+        "request failed"
     )
 
     private val terminationIndicators = listOf(
@@ -73,12 +94,16 @@ class UssdPromptMatcher {
             return MatchResult.ProviderError(observedRaw.trim())
         }
 
+        if (terminationIndicators.any { observedNorm.contains(it) }) {
+            return MatchResult.SessionTerminated
+        }
+
         for (pattern in (step.expectedPrompts as List<String>?).orEmpty()) {
             if (pattern == "VERIFY_FROM_AGENT_SIM") continue
             val mode = (step.matchMode as PromptMatchMode?) ?: PromptMatchMode.NORMALIZED_TEXT
             val isMatch = when (mode) {
                 PromptMatchMode.EXACT -> observedRaw.trim() == pattern.trim()
-                PromptMatchMode.NORMALIZED_TEXT -> observedNorm.contains(normalize(pattern))
+                PromptMatchMode.NORMALIZED_TEXT -> matchesNormalizedPattern(observedNorm, pattern)
                 PromptMatchMode.REGEX -> runCatching {
                     Regex(pattern, setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                         .containsMatchIn(observedRaw)
@@ -89,10 +114,24 @@ class UssdPromptMatcher {
             }
         }
 
-        if (terminationIndicators.any { observedNorm.contains(it) }) {
-            return MatchResult.SessionTerminated
-        }
-
         return MatchResult.UnexpectedPrompt(observedRaw.trim())
+    }
+
+    private fun matchesNormalizedPattern(observedNorm: String, patternRaw: String): Boolean {
+        val patternNorm = normalize(patternRaw)
+        if (patternNorm.isEmpty()) return false
+        if (NUMERIC_MENU_PREFIX_REGEX.matches(patternNorm)) {
+            val regex = Regex("""(?:^|\s)${Regex.escape(patternNorm)}(?!\d)""")
+            return regex.containsMatchIn(observedNorm)
+        }
+        if (patternNorm.length <= 3 && patternNorm.all { it.isLetterOrDigit() }) {
+            val regex = Regex("""\b${Regex.escape(patternNorm)}\b""")
+            return regex.containsMatchIn(observedNorm)
+        }
+        return observedNorm.contains(patternNorm)
+    }
+
+    private companion object {
+        val NUMERIC_MENU_PREFIX_REGEX = Regex("""^\d+[.)]$""")
     }
 }

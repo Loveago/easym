@@ -3,6 +3,8 @@ package com.easymomo.app.data.repository
 import com.easymomo.app.BuildConfig
 import com.easymomo.app.data.local.SessionStore
 import com.easymomo.app.data.remote.EasyMoMoApiService
+import com.easymomo.app.data.remote.dto.GoogleAuthConfigResponse
+import com.easymomo.app.data.remote.dto.GoogleAuthRequest
 import com.easymomo.app.data.remote.dto.InitializePaymentRequest
 import com.easymomo.app.data.remote.dto.InitializePaymentResponse
 import com.easymomo.app.data.remote.dto.LoginRequest
@@ -34,6 +36,8 @@ class AuthSubscriptionRepository(
     private val _subscription = MutableStateFlow(sessionStore.getSubscription())
     val subscription: StateFlow<SubscriptionInfo> = _subscription.asStateFlow()
 
+    fun isDebugGuestSession(): Boolean = sessionStore.authToken == DEBUG_GUEST_TOKEN
+
     fun isLoggedIn(): Boolean = !sessionStore.authToken.isNullOrBlank() && sessionStore.getUser() != null
 
     fun isOnboardingCompleted(): Boolean = sessionStore.onboardingCompleted
@@ -49,21 +53,26 @@ class AuthSubscriptionRepository(
     fun ensureDebugGuestSession() {
         if (!BuildConfig.DEBUG || isLoggedIn()) return
         sessionStore.onboardingCompleted = true
-        sessionStore.authToken = "debug-guest-token"
+        sessionStore.authToken = DEBUG_GUEST_TOKEN
         val guestUser = AgentUser(
             id = "debug-guest-agent",
             fullName = "Guest Agent (Debug)",
             email = "guest@easymomo.local",
             phone = "0244000000",
-            accountStatus = "ACTIVE"
+            accountStatus = "ACTIVE",
+            createdAt = java.time.Instant.now().toString()
         )
         sessionStore.saveUser(guestUser)
         _currentUser.value = guestUser
 
+        val trialStart = java.time.Instant.now()
+        val trialEnd = trialStart.plusSeconds(SubscriptionInfo.DEFAULT_TRIAL_DAYS * 24L * 60L * 60L)
         val guestTrial = SubscriptionInfo(
             status = SubscriptionStatus.TRIAL,
-            currentPlanName = "7-Day Free Trial (Guest)",
-            remainingDays = 7
+            trialStartedAt = trialStart.toString(),
+            trialExpiresAt = trialEnd.toString(),
+            currentPlanName = "15-Day Free Trial (Guest)",
+            remainingDays = SubscriptionInfo.DEFAULT_TRIAL_DAYS
         )
         sessionStore.saveSubscription(guestTrial)
         _subscription.value = guestTrial
@@ -76,9 +85,22 @@ class AuthSubscriptionRepository(
         password: String
     ): Result<AgentUser> {
         return runCatching {
-            val response = api.register(RegisterRequest(fullName.trim(), phone.trim(), email.trim(), password))
+            val response = api.register(
+                RegisterRequest(
+                    fullName = fullName.trim(),
+                    phone = phone.trim(),
+                    email = email.trim(),
+                    password = password,
+                    deviceId = sessionStore.deviceId,
+                    deviceName = sessionStore.deviceName
+                )
+            )
             if (!response.isSuccessful) {
-                throw IllegalStateException("Registration failed (${response.code()}): ${response.errorBody()?.string().orEmpty()}")
+                val errMsg = extractBackendErrorMessage(
+                    response.errorBody()?.string(),
+                    "Registration failed (${response.code()})"
+                )
+                throw IllegalStateException(errMsg)
             }
             val body = response.body() ?: throw IllegalStateException("Empty registration response")
             sessionStore.authToken = body.token
@@ -87,15 +109,66 @@ class AuthSubscriptionRepository(
                 fullName = body.user.fullName,
                 email = body.user.email,
                 phone = body.user.phone,
-                accountStatus = body.user.accountStatus
+                accountStatus = body.user.accountStatus,
+                createdAt = body.user.createdAt
             )
             sessionStore.saveUser(user)
             _currentUser.value = user
 
-            body.entitlement?.toDomain()?.let { sub ->
-                sessionStore.saveSubscription(sub)
-                _subscription.value = sub
+            val sub = body.entitlement?.toDomain() ?: SubscriptionInfo(status = SubscriptionStatus.NONE)
+            sessionStore.saveSubscription(sub)
+            _subscription.value = sub
+            backgroundScope.launch {
+                runCatching { onUserAuthenticated?.invoke(user.id) }
             }
+            user
+        }
+    }
+
+    suspend fun getGoogleAuthConfig(): Result<GoogleAuthConfigResponse> {
+        return runCatching {
+            val response = api.getGoogleAuthConfig()
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Could not load Google Sign-In config (${response.code()})")
+            }
+            response.body() ?: GoogleAuthConfigResponse()
+        }
+    }
+
+    suspend fun signInWithGoogle(idToken: String): Result<AgentUser> {
+        return runCatching {
+            val response = api.googleAuth(
+                GoogleAuthRequest(
+                    idToken = idToken,
+                    deviceId = sessionStore.deviceId,
+                    deviceName = sessionStore.deviceName
+                )
+            )
+            if (!response.isSuccessful) {
+                val fallback = if (response.code() == 403) {
+                    "Maximum of 2 active devices reached for this account. Please sign out on one of your active devices first."
+                } else {
+                    "Google Sign-In failed (${response.code()})"
+                }
+                val errMsg = extractBackendErrorMessage(response.errorBody()?.string(), fallback)
+                throw IllegalStateException(errMsg)
+            }
+            val body = response.body() ?: throw IllegalStateException("Empty Google Sign-In response")
+            sessionStore.authToken = body.token
+            val user = AgentUser(
+                id = body.user.id,
+                fullName = body.user.fullName,
+                email = body.user.email,
+                phone = body.user.phone,
+                accountStatus = body.user.accountStatus,
+                createdAt = body.user.createdAt
+            )
+            sessionStore.saveUser(user)
+            _currentUser.value = user
+
+            val sub = body.entitlement?.toDomain() ?: SubscriptionInfo(status = SubscriptionStatus.NONE)
+            sessionStore.saveSubscription(sub)
+            _subscription.value = sub
             backgroundScope.launch {
                 runCatching { onUserAuthenticated?.invoke(user.id) }
             }
@@ -105,9 +178,22 @@ class AuthSubscriptionRepository(
 
     suspend fun login(identifier: String, password: String): Result<AgentUser> {
         return runCatching {
-            val response = api.login(LoginRequest(identifier.trim(), password))
+            val response = api.login(
+                LoginRequest(
+                    identifier = identifier.trim(),
+                    password = password,
+                    deviceId = sessionStore.deviceId,
+                    deviceName = sessionStore.deviceName
+                )
+            )
             if (!response.isSuccessful) {
-                throw IllegalStateException("Invalid credentials (${response.code()})")
+                val fallback = if (response.code() == 403) {
+                    "Maximum of 2 active devices reached for this account. Please sign out on one of your active devices first."
+                } else {
+                    "Invalid credentials (${response.code()})"
+                }
+                val errMsg = extractBackendErrorMessage(response.errorBody()?.string(), fallback)
+                throw IllegalStateException(errMsg)
             }
             val body = response.body() ?: throw IllegalStateException("Empty login response")
             sessionStore.authToken = body.token
@@ -116,15 +202,15 @@ class AuthSubscriptionRepository(
                 fullName = body.user.fullName,
                 email = body.user.email,
                 phone = body.user.phone,
-                accountStatus = body.user.accountStatus
+                accountStatus = body.user.accountStatus,
+                createdAt = body.user.createdAt
             )
             sessionStore.saveUser(user)
             _currentUser.value = user
 
-            body.entitlement?.toDomain()?.let { sub ->
-                sessionStore.saveSubscription(sub)
-                _subscription.value = sub
-            }
+            val sub = body.entitlement?.toDomain() ?: SubscriptionInfo(status = SubscriptionStatus.NONE)
+            sessionStore.saveSubscription(sub)
+            _subscription.value = sub
             backgroundScope.launch {
                 runCatching { onUserAuthenticated?.invoke(user.id) }
             }
@@ -132,7 +218,34 @@ class AuthSubscriptionRepository(
         }
     }
 
+    suspend fun refreshProfileAndSubscription(): Result<SubscriptionInfo> {
+        if (!isLoggedIn() || isDebugGuestSession()) return Result.success(_subscription.value)
+        val profile = runCatching {
+            val response = api.getProfile()
+            val body = response.body()
+            if (!response.isSuccessful || body == null) {
+                throw IllegalStateException("Unable to refresh profile (${response.code()})")
+            }
+            val user = AgentUser(
+                id = body.user.id,
+                fullName = body.user.fullName,
+                email = body.user.email,
+                phone = body.user.phone,
+                accountStatus = body.user.accountStatus,
+                createdAt = body.user.createdAt
+            )
+            val info = body.entitlement.toDomain()
+            sessionStore.saveUser(user)
+            _currentUser.value = user
+            sessionStore.saveSubscription(info)
+            _subscription.value = info
+            info
+        }
+        return if (profile.isSuccess) profile else refreshSubscriptionStatus()
+    }
+
     suspend fun refreshSubscriptionStatus(): Result<SubscriptionInfo> {
+        if (!isLoggedIn() || isDebugGuestSession()) return Result.success(_subscription.value)
         return runCatching {
             val response = api.getSubscriptionStatus()
             if (!response.isSuccessful) {
@@ -197,12 +310,23 @@ class AuthSubscriptionRepository(
 
     fun logout() {
         val previousUserId = _currentUser.value?.id
-        sessionStore.clearSession()
-        _currentUser.value = null
-        _subscription.value = SubscriptionInfo()
+        val wasGuest = isDebugGuestSession()
+        val activeToken = sessionStore.authToken
         backgroundScope.launch {
+            if (!wasGuest && !activeToken.isNullOrBlank()) {
+                runCatching { api.logout() }
+            }
+            sessionStore.clearSession()
             runCatching { onUserLoggedOut?.invoke(previousUserId) }
         }
+        _currentUser.value = null
+        _subscription.value = SubscriptionInfo()
+    }
+
+    private fun extractBackendErrorMessage(rawBody: String?, fallback: String): String {
+        if (rawBody.isNullOrBlank()) return fallback
+        val match = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"").find(rawBody)
+        return match?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() } ?: fallback
     }
 
     private fun SubscriptionStatusDto.toDomain(): SubscriptionInfo {
@@ -213,7 +337,12 @@ class AuthSubscriptionRepository(
             paidUntil = paidUntil,
             currentPlanId = currentPlanId,
             currentPlanName = currentPlanName,
-            remainingDays = remainingDays
+            remainingDays = remainingDays,
+            recurringAuthorized = recurringAuthorized
         )
+    }
+
+    companion object {
+        const val DEBUG_GUEST_TOKEN = "debug-guest-token"
     }
 }

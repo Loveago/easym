@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
+import { requireActiveEntitlement } from '../middleware/entitlement';
 import { validate } from '../middleware/validate';
 import { getReportSummary, ReportPeriod } from '../services/reportService';
 
@@ -11,7 +12,7 @@ const reportQuerySchema = z.object({
   date: z.string().datetime().optional(),
 });
 
-router.get('/summary', requireAuth, validate(reportQuerySchema, 'query'), async (req, res, next) => {
+router.get('/summary', requireAuth, requireActiveEntitlement, validate(reportQuerySchema, 'query'), async (req, res, next) => {
   try {
     const period = (req.query.period as ReportPeriod) || 'daily';
     const refDate = req.query.date ? new Date(String(req.query.date)) : new Date();

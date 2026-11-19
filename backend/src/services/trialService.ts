@@ -1,7 +1,7 @@
 import { EntitlementStatus, PrismaClient, SubscriptionEntitlement } from '@prisma/client';
 import { prisma as defaultPrisma } from '../config/prisma';
 
-export const TRIAL_DURATION_DAYS = 7;
+export const TRIAL_DURATION_DAYS = 15;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export interface EntitlementSummary {
@@ -12,6 +12,7 @@ export interface EntitlementSummary {
   trialExpiresAt: string | null;
   paidUntil: string | null;
   currentPlanId: string | null;
+  currentPlanName: string | null;
   recurringAuthorized: boolean;
   remainingDays: number;
   displayMessage: string;
@@ -27,7 +28,7 @@ export function computeEntitlementSummary(
     | 'paidUntil'
     | 'currentPlanId'
     | 'recurringAuthorized'
-  >,
+  > & { currentPlan?: { name?: string | null } | null },
   now: Date = new Date(),
 ): EntitlementSummary {
   const nowMs = now.getTime();
@@ -78,6 +79,7 @@ export function computeEntitlementSummary(
     trialExpiresAt: entitlement.trialExpiresAt?.toISOString() ?? null,
     paidUntil: entitlement.paidUntil?.toISOString() ?? null,
     currentPlanId: entitlement.currentPlanId ?? null,
+    currentPlanName: entitlement.currentPlan?.name ?? null,
     recurringAuthorized: entitlement.recurringAuthorized,
     remainingDays,
     displayMessage,
@@ -92,6 +94,7 @@ export async function getAndSyncEntitlement(
 ): Promise<EntitlementSummary> {
   const entitlement = await db.subscriptionEntitlement.findUnique({
     where: { userId },
+    include: { currentPlan: { select: { name: true } } },
   });
 
   if (!entitlement) {
@@ -103,6 +106,7 @@ export async function getAndSyncEntitlement(
       trialExpiresAt: null,
       paidUntil: null,
       currentPlanId: null,
+      currentPlanName: null,
       recurringAuthorized: false,
       remainingDays: 0,
       displayMessage: 'No active subscription or trial',

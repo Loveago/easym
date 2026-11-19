@@ -15,6 +15,7 @@ object TransactionLifecycleManager {
             TransactionStatus.CANCELLED
         ),
         TransactionStatus.PROCESSING to setOf(
+            TransactionStatus.AWAITING_VERIFICATION,
             TransactionStatus.SUCCESSFUL,
             TransactionStatus.FAILED,
             TransactionStatus.UNKNOWN,

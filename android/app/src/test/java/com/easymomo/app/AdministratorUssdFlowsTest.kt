@@ -282,7 +282,7 @@ class AdministratorUssdFlowsTest {
     }
 
     @Test
-    fun `telecel airtime executes 7-1-operational-id-pin`() {
+    fun `telecel airtime executes 3-1-phone-phone-amount-operational-id-pin`() {
         val profile = loadBundledFlows().getValue("TELECEL_AIRTIME")
         val sent = mutableListOf<String>()
         val controller = UssdFlowController(responseSender = { sent.add(it); true })
@@ -293,11 +293,14 @@ class AdministratorUssdFlowsTest {
         )
 
         assertTrue(controller.startFlow("tx-tel-air", profile, vars).isSuccess)
-        controller.onPromptObserved("7. My Account")
+        controller.onPromptObserved("3. Airtime & Bundles")
         controller.onPromptObserved("1. Airtime")
+        controller.onPromptObserved("Enter customer phone number:")
+        controller.onPromptObserved("Re-enter customer phone number:")
+        controller.onPromptObserved("Enter amount:")
         controller.onPromptObserved("Enter Operational ID:")
 
-        assertEquals(listOf("7", "1"), sent)
+        assertEquals(listOf("3", "1", "0201234567", "0201234567", "10"), sent)
         assertTrue(controller.sessionState.value is UssdSessionState.PausedForOperationalId)
 
         controller.onPromptObserved("Enter PIN:")
@@ -426,16 +429,19 @@ class AdministratorUssdFlowsTest {
         assertEquals(listOf("3", "2", "1", "25", "2", "0201234567"), sentData)
         assertTrue(dataController.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
-        // Telecel Airtime with manual Operational ID (7 -> 1 -> Operational ID -> PIN)
+        // Telecel Airtime with manual Operational ID (3 -> 1 -> Phone -> Phone -> Amount -> Operational ID -> PIN)
         val sentAir = mutableListOf<String>()
         val airController = UssdFlowController(responseSender = { sentAir.add(it); true })
         assertTrue(airController.startFlow("tx-tair-op", flows.getValue("TELECEL_AIRTIME"), vars).isSuccess)
-        airController.onPromptObserved("7. My Account")
+        airController.onPromptObserved("3. Airtime & Bundles")
         airController.onPromptObserved("1. Airtime")
+        airController.onPromptObserved("Enter phone number:")
+        airController.onPromptObserved("Confirm phone number:")
+        airController.onPromptObserved("Enter amount:")
         airController.onPromptObserved("Enter Operational ID:")
         assertTrue(airController.sessionState.value is UssdSessionState.PausedForOperationalId)
         airController.onPromptObserved("Enter PIN:")
-        assertEquals(listOf("7", "1"), sentAir)
+        assertEquals(listOf("3", "1", "0201234567", "0201234567", "25"), sentAir)
         assertTrue(airController.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
         // Blank operational_id fails validation in UssdInputHandler
@@ -721,7 +727,7 @@ class AdministratorUssdFlowsTest {
         val commDone = ctrlComm.sessionState.value as UssdSessionState.Completed
         assertEquals(OutcomeCategory.SUCCESSFUL, commDone.outcome.category)
 
-        // TELECEL_BALANCE
+        // TELECEL_BALANCE (7 -> 1 -> Operational ID -> PIN)
         val sentTelBal = mutableListOf<String>()
         val ctrlTelBal = UssdFlowController(responseSender = { sentTelBal.add(it); true })
         assertTrue(
@@ -731,9 +737,11 @@ class AdministratorUssdFlowsTest {
                 UssdInputHandler.TransactionVariables(network = NetworkType.TELECEL)
             ).isSuccess
         )
-        ctrlTelBal.onPromptObserved("6. My Account")
+        ctrlTelBal.onPromptObserved("7. My Account")
         ctrlTelBal.onPromptObserved("1. Check Balance\n2. Change PIN")
-        assertEquals(listOf("6", "1"), sentTelBal)
+        ctrlTelBal.onPromptObserved("Enter Operational ID:")
+        assertEquals(listOf("7", "1"), sentTelBal)
+        assertTrue(ctrlTelBal.sessionState.value is UssdSessionState.PausedForOperationalId)
         ctrlTelBal.onPromptObserved("Enter PIN:")
         assertTrue(ctrlTelBal.sessionState.value is UssdSessionState.PausedForPinAuthorization)
     }

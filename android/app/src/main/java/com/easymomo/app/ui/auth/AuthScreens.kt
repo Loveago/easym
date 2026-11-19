@@ -1,5 +1,9 @@
 package com.easymomo.app.ui.auth
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +67,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.launch
 import com.easymomo.app.BuildConfig
@@ -222,9 +227,11 @@ fun AuthScreen(
     onAuthenticated: () -> Unit
 ) {
     val context = LocalContext.current
+    val activityContext = remember(context) { context.findActivity() ?: context }
     val scope = rememberCoroutineScope()
     val uiState by authViewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var isGoogleSigningIn by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         authViewModel.loadGoogleAuthConfig()
@@ -234,22 +241,35 @@ fun AuthScreen(
         val clientId = uiState.googleClientId.trim()
         if (clientId.isBlank()) {
             authViewModel.setError("Google Sign-In is not configured by the administrator yet.")
-        } else {
+        } else if (!isGoogleSigningIn && !uiState.isLoading) {
+            isGoogleSigningIn = true
+            authViewModel.clearError()
             scope.launch {
                 try {
-                    val credentialManager = CredentialManager.create(context)
-                    val googleIdOption = GetGoogleIdOption.Builder()
-                        .setFilterByAuthorizedAccounts(false)
-                        .setServerClientId(clientId)
-                        .setAutoSelectEnabled(false)
+                    val credentialManager = CredentialManager.create(activityContext)
+                    val signInOption = GetSignInWithGoogleOption.Builder(clientId).build()
+                    val primaryRequest = GetCredentialRequest.Builder()
+                        .addCredentialOption(signInOption)
                         .build()
-                    val request = GetCredentialRequest.Builder()
-                        .addCredentialOption(googleIdOption)
-                        .build()
-                    val result = credentialManager.getCredential(
-                        context = context,
-                        request = request
-                    )
+                    val result = try {
+                        credentialManager.getCredential(
+                            context = activityContext,
+                            request = primaryRequest
+                        )
+                    } catch (_: NoCredentialException) {
+                        val fallbackOption = GetGoogleIdOption.Builder()
+                            .setFilterByAuthorizedAccounts(false)
+                            .setServerClientId(clientId)
+                            .setAutoSelectEnabled(false)
+                            .build()
+                        val fallbackRequest = GetCredentialRequest.Builder()
+                            .addCredentialOption(fallbackOption)
+                            .build()
+                        credentialManager.getCredential(
+                            context = activityContext,
+                            request = fallbackRequest
+                        )
+                    }
                     val credential = result.credential
                     if (credential is CustomCredential &&
                         credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
@@ -257,14 +277,29 @@ fun AuthScreen(
                         val googleCred = GoogleIdTokenCredential.createFrom(credential.data)
                         authViewModel.signInWithGoogle(googleCred.idToken, onAuthenticated)
                     } else {
-                        authViewModel.setError("Unexpected Google credential response.")
+                        authViewModel.setError("Unexpected Google credential response (${credential.type}).")
                     }
-                } catch (_: GetCredentialCancellationException) {
-                    // User cancelled account picker
-                } catch (_: NoCredentialException) {
-                    authViewModel.setError("No Google account found on this device.")
+                } catch (e: GetCredentialCancellationException) {
+                    Log.w("EasyMoMoAuth", "Google Sign-In cancelled: ${e.message}", e)
+                    val detail = e.message?.takeIf { it.isNotBlank() }
+                    authViewModel.setError(
+                        if (detail != null) {
+                            "Google Sign-In cancelled ($detail). If you selected an account and nothing happened, publish your Google Cloud OAuth Consent Screen (or add your Gmail as a Test User) and verify the APK SHA-1."
+                        } else {
+                            "Google Sign-In did not complete. If you selected an account and the popup closed, publish your Google Cloud OAuth Consent Screen (or add your Gmail as a Test User) and verify the APK SHA-1."
+                        }
+                    )
+                } catch (e: NoCredentialException) {
+                    Log.w("EasyMoMoAuth", "Google NoCredentialException: ${e.message}", e)
+                    authViewModel.setError(
+                        "Google Sign-In unavailable on this build. Check that a Google account is signed in on the phone and this app's SHA-1 is added in Google Cloud Console."
+                    )
                 } catch (e: Exception) {
-                    authViewModel.setError(e.message ?: "Google Sign-In failed.")
+                    Log.e("EasyMoMoAuth", "Google Sign-In error", e)
+                    val detail = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+                    authViewModel.setError("Google Sign-In failed: $detail")
+                } finally {
+                    isGoogleSigningIn = false
                 }
             }
         }
@@ -387,10 +422,13 @@ fun AuthScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = launchGoogleSignIn,
-                            enabled = !uiState.isLoading,
+                            enabled = !uiState.isLoading && !isGoogleSigningIn,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Continue with Google", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = if (isGoogleSigningIn || uiState.isLoading) "Signing in with Google..." else "Continue with Google",
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                     if (BuildConfig.DEBUG) {
@@ -490,10 +528,13 @@ fun AuthScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = launchGoogleSignIn,
-                            enabled = !uiState.isLoading,
+                            enabled = !uiState.isLoading && !isGoogleSigningIn,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Sign up with Google", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = if (isGoogleSigningIn || uiState.isLoading) "Signing in with Google..." else "Sign up with Google",
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -511,4 +552,10 @@ fun AuthScreen(
             }
         )
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

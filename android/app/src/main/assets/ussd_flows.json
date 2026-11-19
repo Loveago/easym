@@ -250,16 +250,19 @@
       "flow_id": "TELECEL_AIRTIME",
       "network": "TELECEL",
       "transaction_type": "AIRTIME",
-      "version": 10,
+      "version": 11,
       "entry_code": "*110#",
       "timeout_seconds": 90,
       "enabled": true,
       "verified_with_sim": true,
       "status": "SUPPLIED_SEQUENCE",
       "steps": [
-        { "id": "START", "type": "INITIATE_USSD", "next": "SELECT_OPTION_7" },
-        { "id": "SELECT_OPTION_7", "type": "MATCH_PROMPT", "expected_prompts": ["7.", "7)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "7", "next": "SELECT_OPTION_1" },
-        { "id": "SELECT_OPTION_1", "type": "MATCH_PROMPT", "expected_prompts": ["airtime", "1.", "1)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "ENTER_OPERATIONAL_ID" },
+        { "id": "START", "type": "INITIATE_USSD", "next": "SELECT_OPTION_3" },
+        { "id": "SELECT_OPTION_3", "type": "MATCH_PROMPT", "expected_prompts": ["airtime", "bundle", "3.", "3)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "3", "next": "SELECT_OPTION_1" },
+        { "id": "SELECT_OPTION_1", "type": "MATCH_PROMPT", "expected_prompts": ["airtime", "1.", "1)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "ENTER_CUSTOMER_NUMBER" },
+        { "id": "ENTER_CUSTOMER_NUMBER", "type": "MATCH_PROMPT", "expected_prompts": ["number", "phone", "mobile", "recipient", "enter"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "variable": "customer_phone", "next": "CONFIRM_CUSTOMER_NUMBER" },
+        { "id": "CONFIRM_CUSTOMER_NUMBER", "type": "MATCH_PROMPT", "optional": true, "skip_to": "ENTER_AMOUNT", "expected_prompts": ["confirm", "re-enter", "reenter", "repeat", "again", "number", "phone", "mobile"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "variable": "customer_phone", "next": "ENTER_AMOUNT" },
+        { "id": "ENTER_AMOUNT", "type": "MATCH_PROMPT", "expected_prompts": ["amount", "ghs"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "variable": "amount", "next": "ENTER_OPERATIONAL_ID" },
         { "id": "ENTER_OPERATIONAL_ID", "type": "MATCH_PROMPT", "expected_prompts": ["operational id", "operator id", "operation id", "agent id", "operational", "operator"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_OPERATIONAL_ID", "response_type": "MANUAL_OPERATIONAL_ID", "next": "AUTHORIZE_PIN" },
         { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "response_type": "MANUAL_SENSITIVE_INPUT", "next": "FINAL_RESULT" },
         { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "response_type": "TERMINAL_RESULT", "success_prompts": ["success", "recharged", "completed"], "failure_prompts": ["failed", "invalid", "insufficient"] }
@@ -308,17 +311,18 @@
       "flow_id": "TELECEL_BALANCE",
       "network": "TELECEL",
       "transaction_type": "BALANCE",
-      "version": 5,
+      "version": 6,
       "entry_code": "*110#",
       "timeout_seconds": 60,
       "enabled": true,
       "verified_with_sim": true,
       "steps": [
         { "id": "START", "type": "INITIATE_USSD", "next": "MAIN_MENU" },
-        { "id": "MAIN_MENU", "type": "MATCH_PROMPT", "expected_prompts": ["my account", "balance", "6.", "6)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "menu_option": "6", "next": "SELECT_BALANCE" },
-        { "id": "SELECT_BALANCE", "type": "MATCH_PROMPT", "expected_prompts": ["balance", "check balance", "1.", "1)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "menu_option": "1", "next": "AUTHORIZE_PIN" },
-        { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "next": "FINAL_RESULT" },
-        { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "success_prompts": ["balance", "ghs", "available"], "failure_prompts": ["failed", "invalid"] }
+        { "id": "MAIN_MENU", "type": "MATCH_PROMPT", "expected_prompts": ["my account", "balance", "7.", "7)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "7", "next": "SELECT_BALANCE" },
+        { "id": "SELECT_BALANCE", "type": "MATCH_PROMPT", "expected_prompts": ["balance", "check balance", "1.", "1)", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "ENTER_OPERATIONAL_ID" },
+        { "id": "ENTER_OPERATIONAL_ID", "type": "MATCH_PROMPT", "expected_prompts": ["operational id", "operator id", "operation id", "agent id", "operational", "operator"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_OPERATIONAL_ID", "response_type": "MANUAL_OPERATIONAL_ID", "next": "AUTHORIZE_PIN" },
+        { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "response_type": "MANUAL_SENSITIVE_INPUT", "next": "FINAL_RESULT" },
+        { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "response_type": "TERMINAL_RESULT", "success_prompts": ["balance", "ghs", "available"], "failure_prompts": ["failed", "invalid"] }
       ]
     },
     {

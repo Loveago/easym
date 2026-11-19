@@ -98,6 +98,6 @@ class EasyMoMoApplication : Application() {
     companion object {
         private const val PREFS_BOOTSTRAP = "easymomo_bootstrap"
         private const val KEY_USSD_SEED_VERSION = "ussd_seed_version"
-        private const val BUNDLED_FLOWS_REVISION = 16
+        private const val BUNDLED_FLOWS_REVISION = 17
     }
 }

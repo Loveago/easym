@@ -41,6 +41,13 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     defaultValue: '15',
   },
   {
+    key: 'MAX_ACTIVE_DEVICES_PER_ACCOUNT',
+    label: 'Max Active Devices Per Account',
+    isSecret: false,
+    description: 'Maximum number of devices allowed to be signed in simultaneously per agent account (1-50).',
+    defaultValue: '2',
+  },
+  {
     key: 'GOOGLE_CLIENT_ID',
     label: 'Google OAuth Web Client ID',
     isSecret: false,
@@ -137,6 +144,26 @@ export async function getEffectiveGoogleClientId(db: PrismaClient = defaultPrism
   } catch {
     return '';
   }
+}
+
+export async function getEffectiveMaxActiveDevices(
+  db: PrismaClient = defaultPrisma,
+  defaultLimit = 2,
+): Promise<number> {
+  if (db === defaultPrisma && env.NODE_ENV === 'test') return defaultLimit;
+  try {
+    const row = await (db as unknown as {
+      systemSetting?: { findUnique?: (a: unknown) => Promise<{ value: string } | null> };
+    })?.systemSetting?.findUnique?.({
+      where: { key: 'MAX_ACTIVE_DEVICES_PER_ACCOUNT' },
+      select: { value: true },
+    });
+    const parsed = Number.parseInt(row?.value?.trim() ?? '', 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 50) return parsed;
+  } catch {
+    // fall back to default
+  }
+  return defaultLimit;
 }
 
 export async function listAdminSettings(db: PrismaClient = defaultPrisma) {

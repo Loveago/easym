@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma as defaultPrisma } from '../config/prisma';
 import { AppError } from '../middleware/errorHandler';
+import { getEffectiveMaxActiveDevices } from './settingsService';
 
 export const MAX_ACTIVE_DEVICES_PER_ACCOUNT = 2;
 const TOUCH_THROTTLE_MS = 60_000;
@@ -96,6 +97,7 @@ export async function verifyAndRegisterDevice(
   }
 
   await ensureUserDevicesTable(db);
+  const maxDevices = await getEffectiveMaxActiveDevices(db, MAX_ACTIVE_DEVICES_PER_ACCOUNT);
   const delegate = getDelegate(db);
   const now = new Date(nowMs);
 
@@ -116,16 +118,16 @@ export async function verifyAndRegisterDevice(
       verifiedDeviceTouchCache.set(cacheKey, nowMs);
       return {
         activeDevices: existingDevices.length,
-        maxDevices: MAX_ACTIVE_DEVICES_PER_ACCOUNT,
+        maxDevices,
       };
     }
 
-    if (existingDevices.length >= MAX_ACTIVE_DEVICES_PER_ACCOUNT) {
+    if (existingDevices.length >= maxDevices) {
       verifiedDeviceTouchCache.delete(cacheKey);
       throw new AppError(
         403,
         'DEVICE_LIMIT_REACHED',
-        `Maximum of ${MAX_ACTIVE_DEVICES_PER_ACCOUNT} active devices reached for this account. Please sign out on one of your active devices first.`,
+        `Maximum of ${maxDevices} active devices reached for this account. Please sign out on one of your active devices first.`,
       );
     }
 
@@ -140,7 +142,7 @@ export async function verifyAndRegisterDevice(
     verifiedDeviceTouchCache.set(cacheKey, nowMs);
     return {
       activeDevices: existingDevices.length + 1,
-      maxDevices: MAX_ACTIVE_DEVICES_PER_ACCOUNT,
+      maxDevices,
     };
   }
 
@@ -159,15 +161,15 @@ export async function verifyAndRegisterDevice(
       lastActiveAt: now,
     });
     verifiedDeviceTouchCache.set(cacheKey, nowMs);
-    return { activeDevices: userMap.size, maxDevices: MAX_ACTIVE_DEVICES_PER_ACCOUNT };
+    return { activeDevices: userMap.size, maxDevices };
   }
 
-  if (userMap.size >= MAX_ACTIVE_DEVICES_PER_ACCOUNT) {
+  if (userMap.size >= maxDevices) {
     verifiedDeviceTouchCache.delete(cacheKey);
     throw new AppError(
       403,
       'DEVICE_LIMIT_REACHED',
-      `Maximum of ${MAX_ACTIVE_DEVICES_PER_ACCOUNT} active devices reached for this account. Please sign out on one of your active devices first.`,
+      `Maximum of ${maxDevices} active devices reached for this account. Please sign out on one of your active devices first.`,
     );
   }
 
@@ -177,7 +179,7 @@ export async function verifyAndRegisterDevice(
     lastActiveAt: now,
   });
   verifiedDeviceTouchCache.set(cacheKey, nowMs);
-  return { activeDevices: userMap.size, maxDevices: MAX_ACTIVE_DEVICES_PER_ACCOUNT };
+  return { activeDevices: userMap.size, maxDevices };
 }
 
 export async function unregisterDevice(

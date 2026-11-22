@@ -73,6 +73,7 @@ import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionType
 import com.easymomo.app.ui.auth.AuthViewModel
 import com.easymomo.app.ui.terminal.TerminalViewModel
+import com.easymomo.app.ussd.model.CustomUssdFeatureKey
 import com.easymomo.app.ui.theme.EasyMoMoCard
 import com.easymomo.app.ui.theme.EmeraldPrimary
 import com.easymomo.app.ui.theme.EmeraldPrimaryContainer
@@ -126,14 +127,18 @@ fun SimAndDiagnosticsScreen(
     var draftFeatureSims by remember {
         mutableStateOf<Map<Pair<NetworkType, TransactionType>, ActiveSimInfo?>>(emptyMap())
     }
+    var draftCustomUssdFeatureSims by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var showCustomUssdFeatureSims by remember { mutableStateOf(false) }
 
     LaunchedEffect(
         uiState.activeSims,
         uiState.simResolutions,
         uiState.featureSimSelections,
+        uiState.agentSettings.customUssdFeatureSims,
         isSimDraftDirty
     ) {
         if (!isSimDraftDirty) {
+            draftCustomUssdFeatureSims = uiState.agentSettings.customUssdFeatureSims
             draftNetworkSims = SimPreferencesStore.SUPPORTED_NETWORKS.associateWith { net ->
                 uiState.simResolutions[net]?.resolvedSim
             }
@@ -262,6 +267,104 @@ fun SimAndDiagnosticsScreen(
                 HorizontalDivider(color = TerminalBorder)
                 Spacer(modifier = Modifier.height(10.dp))
 
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    val customAssignedCount = CustomUssdFeatureKey.entries.count { feat ->
+                        val assignedId = draftCustomUssdFeatureSims[feat.key]
+                        assignedId != null && uiState.activeSims.any { it.subscriptionId == assignedId }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Custom USSD Feature SIMs",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Assign a SIM per Custom USSD feature ($customAssignedCount/${CustomUssdFeatureKey.entries.size} assigned).",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
+                        TextButton(onClick = { showCustomUssdFeatureSims = !showCustomUssdFeatureSims }) {
+                            Text(
+                                if (showCustomUssdFeatureSims) "Hide" else "Configure",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+
+                    if (showCustomUssdFeatureSims && uiState.activeSims.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            color = TerminalBackground,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, TerminalBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CustomUssdFeatureKey.entries.forEach { feature ->
+                                    val selectedSubId = draftCustomUssdFeatureSims[feature.key]
+                                    val selectedSim = uiState.activeSims.firstOrNull { it.subscriptionId == selectedSubId }
+                                    Column {
+                                        Text(
+                                            text = if (selectedSim != null) {
+                                                "${feature.displayName} • ${selectedSim.label}"
+                                            } else {
+                                                "${feature.displayName} • ${feature.defaultHint}"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (selectedSim != null) TextPrimary else TextSecondary
+                                        )
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            FilterChip(
+                                                selected = selectedSim == null,
+                                                onClick = {
+                                                    draftCustomUssdFeatureSims = draftCustomUssdFeatureSims - feature.key
+                                                    isSimDraftDirty = true
+                                                    terminalViewModel.clearSimSettingsSavedMessage()
+                                                },
+                                                label = { Text("Auto", style = MaterialTheme.typography.labelSmall) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = EmeraldPrimaryContainer,
+                                                    selectedLabelColor = OnEmeraldPrimaryContainer
+                                                )
+                                            )
+                                            uiState.activeSims.forEach { sim ->
+                                                val shortSlot = if (sim.isEmbedded) "eSIM" else "SIM ${sim.slotIndex + 1}"
+                                                FilterChip(
+                                                    selected = selectedSubId == sim.subscriptionId,
+                                                    onClick = {
+                                                        draftCustomUssdFeatureSims = draftCustomUssdFeatureSims + (feature.key to sim.subscriptionId)
+                                                        isSimDraftDirty = true
+                                                        terminalViewModel.clearSimSettingsSavedMessage()
+                                                    },
+                                                    label = { Text(shortSlot, style = MaterialTheme.typography.labelSmall) },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = EmeraldPrimaryContainer,
+                                                        selectedLabelColor = OnEmeraldPrimaryContainer
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = TerminalBorder)
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Text(
                     "Per-Network SIM Assignment",
                     style = MaterialTheme.typography.labelLarge,
@@ -269,7 +372,7 @@ fun SimAndDiagnosticsScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Select a SIM for each network, optionally customize Per-Feature SIMs, then tap Save SIM Settings.",
+                    "Select a SIM for each network, or tap 'Per-Feature SIMs' below to choose separate SIMs for EVD Airtime, EVD Data, Custom USSD, etc., then tap Save SIM Settings.",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
                 )
@@ -472,6 +575,104 @@ fun SimAndDiagnosticsScreen(
                 HorizontalDivider(color = TerminalBorder)
                 Spacer(modifier = Modifier.height(10.dp))
 
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    val customAssignedCount = CustomUssdFeatureKey.entries.count { feat ->
+                        val assignedId = draftCustomUssdFeatureSims[feat.key]
+                        assignedId != null && uiState.activeSims.any { it.subscriptionId == assignedId }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Custom USSD Feature SIMs",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Assign a SIM per Custom USSD feature ($customAssignedCount/${CustomUssdFeatureKey.entries.size} assigned).",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
+                        TextButton(onClick = { showCustomUssdFeatureSims = !showCustomUssdFeatureSims }) {
+                            Text(
+                                if (showCustomUssdFeatureSims) "Hide" else "Configure",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+
+                    if (showCustomUssdFeatureSims && uiState.activeSims.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            color = TerminalBackground,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, TerminalBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CustomUssdFeatureKey.entries.forEach { feature ->
+                                    val selectedSubId = draftCustomUssdFeatureSims[feature.key]
+                                    val selectedSim = uiState.activeSims.firstOrNull { it.subscriptionId == selectedSubId }
+                                    Column {
+                                        Text(
+                                            text = if (selectedSim != null) {
+                                                "${feature.displayName} • ${selectedSim.label}"
+                                            } else {
+                                                "${feature.displayName} • ${feature.defaultHint}"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (selectedSim != null) TextPrimary else TextSecondary
+                                        )
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            FilterChip(
+                                                selected = selectedSim == null,
+                                                onClick = {
+                                                    draftCustomUssdFeatureSims = draftCustomUssdFeatureSims - feature.key
+                                                    isSimDraftDirty = true
+                                                    terminalViewModel.clearSimSettingsSavedMessage()
+                                                },
+                                                label = { Text("Auto", style = MaterialTheme.typography.labelSmall) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = EmeraldPrimaryContainer,
+                                                    selectedLabelColor = OnEmeraldPrimaryContainer
+                                                )
+                                            )
+                                            uiState.activeSims.forEach { sim ->
+                                                val shortSlot = if (sim.isEmbedded) "eSIM" else "SIM ${sim.slotIndex + 1}"
+                                                FilterChip(
+                                                    selected = selectedSubId == sim.subscriptionId,
+                                                    onClick = {
+                                                        draftCustomUssdFeatureSims = draftCustomUssdFeatureSims + (feature.key to sim.subscriptionId)
+                                                        isSimDraftDirty = true
+                                                        terminalViewModel.clearSimSettingsSavedMessage()
+                                                    },
+                                                    label = { Text(shortSlot, style = MaterialTheme.typography.labelSmall) },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = EmeraldPrimaryContainer,
+                                                        selectedLabelColor = OnEmeraldPrimaryContainer
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = TerminalBorder)
+                Spacer(modifier = Modifier.height(10.dp))
+
                 if (isSimDraftDirty) {
                     Text(
                         text = "Unsaved changes — tap Save SIM Settings",
@@ -506,7 +707,8 @@ fun SimAndDiagnosticsScreen(
                         isSimDraftDirty = false
                         terminalViewModel.saveSimConfiguration(
                             networkSelections = draftNetworkSims,
-                            featureSelections = draftFeatureSims
+                            featureSelections = draftFeatureSims,
+                            customUssdFeatureSims = draftCustomUssdFeatureSims
                         )
                     },
                     enabled = uiState.activeSims.isNotEmpty() && !uiState.isSavingSimSettings,

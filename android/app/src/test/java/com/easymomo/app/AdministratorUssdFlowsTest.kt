@@ -6,6 +6,7 @@ import com.easymomo.app.domain.model.TransactionStatus
 import com.easymomo.app.ussd.UssdFlowController
 import com.easymomo.app.ussd.UssdInputHandler
 import com.easymomo.app.ussd.model.OutcomeCategory
+import com.easymomo.app.ussd.model.PresetUssdFlows
 import com.easymomo.app.ussd.model.UssdFlowProfile
 import com.easymomo.app.ussd.model.UssdSessionState
 import com.google.gson.Gson
@@ -66,7 +67,7 @@ class AdministratorUssdFlowsTest {
     }
 
     @Test
-    fun `mtn bundle purchase executes supplied sequence 5-2-1-2-phone-confirm-1-amount-pin`() {
+    fun `mtn bundle purchase executes supplied sequence 5-2-1-1-2-phone-confirm-1-amount-1-1-2-pin`() {
         val profile = loadBundledFlows().getValue("MTN_DATA")
         val sent = mutableListOf<String>()
         val controller = UssdFlowController(responseSender = { sent.add(it); true })
@@ -80,14 +81,18 @@ class AdministratorUssdFlowsTest {
         controller.onPromptObserved("5. Airtime & Bundles")
         controller.onPromptObserved("2. Data Bundle")
         controller.onPromptObserved("1. Buy Bundle")
+        controller.onPromptObserved("1. MTN Data")
         controller.onPromptObserved("2. Other Number")
         controller.onPromptObserved("Enter customer number:")
         controller.onPromptObserved("Re-enter customer number:")
         controller.onPromptObserved("1. Specify Amount")
         controller.onPromptObserved("Enter amount:")
+        controller.onPromptObserved("1. Confirm")
+        controller.onPromptObserved("1. Proceed")
+        controller.onPromptObserved("2. MoMo Wallet")
         controller.onPromptObserved("Enter MoMo PIN:")
 
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "0244123456", "1", "20"), sent)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "0244123456", "1", "20", "1", "1", "2"), sent)
         assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
         controller.onPromptObserved("Bundle purchase of GHS 20.00 completed successfully.")
@@ -495,14 +500,18 @@ class AdministratorUssdFlowsTest {
         controller.onPromptObserved("5. Airtime & Bundles")
         controller.onPromptObserved("2. Data Bundle")
         controller.onPromptObserved("1. Buy Bundle")
+        controller.onPromptObserved("1. MTN Data")
         controller.onPromptObserved("2. Other Number")
         controller.onPromptObserved("Enter recipient number:")
         // CONFIRM_CUSTOMER_NUMBER skipped by network -> SELECT_OPTION_1_AMOUNT
         controller.onPromptObserved("1. Specify Amount")
         controller.onPromptObserved("Enter amount (GHS 1.00 - 500.00):")
+        controller.onPromptObserved("1. Confirm")
+        controller.onPromptObserved("1. Proceed")
+        controller.onPromptObserved("2. MoMo Wallet")
         controller.onPromptObserved("Enter MM PIN:")
 
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "1", "1"), sent)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "1", "1", "1", "1", "2"), sent)
         assertTrue(controller.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
         controller.onPromptObserved("Bundle purchase failed: Insufficient balance.")
@@ -613,13 +622,17 @@ class AdministratorUssdFlowsTest {
         ctrlWithSpecify.onPromptObserved("5. Airtime & Bundles")
         ctrlWithSpecify.onPromptObserved("2. Data Bundle")
         ctrlWithSpecify.onPromptObserved("1. Buy Bundle")
+        ctrlWithSpecify.onPromptObserved("1. MTN Data")
         ctrlWithSpecify.onPromptObserved("2. Other Number")
         ctrlWithSpecify.onPromptObserved("Enter customer number:")
         ctrlWithSpecify.onPromptObserved("Re-enter customer number:")
         ctrlWithSpecify.onPromptObserved("1. Specify Amount")
         ctrlWithSpecify.onPromptObserved("Enter Amount:")
+        ctrlWithSpecify.onPromptObserved("1. Confirm")
+        ctrlWithSpecify.onPromptObserved("1. Proceed")
+        ctrlWithSpecify.onPromptObserved("2. MoMo Wallet")
         ctrlWithSpecify.onPromptObserved("Enter MM PIN:")
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "0244123456", "1", "25"), sentWithSpecify)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "0244123456", "1", "25", "1", "1", "2"), sentWithSpecify)
         assertTrue(ctrlWithSpecify.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
         // 2. Carrier skips 1. Specify Amount directly to Enter Amount: (after confirm number)
@@ -629,12 +642,16 @@ class AdministratorUssdFlowsTest {
         ctrlDirectAfterConfirm.onPromptObserved("5. Airtime & Bundles")
         ctrlDirectAfterConfirm.onPromptObserved("2. Data Bundle")
         ctrlDirectAfterConfirm.onPromptObserved("1. Buy Bundle")
+        ctrlDirectAfterConfirm.onPromptObserved("1. MTN Data")
         ctrlDirectAfterConfirm.onPromptObserved("2. Other Number")
         ctrlDirectAfterConfirm.onPromptObserved("Enter customer number:")
         ctrlDirectAfterConfirm.onPromptObserved("Re-enter customer number:")
         ctrlDirectAfterConfirm.onPromptObserved("Enter Amount:")
+        ctrlDirectAfterConfirm.onPromptObserved("1. Confirm")
+        ctrlDirectAfterConfirm.onPromptObserved("1. Proceed")
+        ctrlDirectAfterConfirm.onPromptObserved("2. MoMo Wallet")
         ctrlDirectAfterConfirm.onPromptObserved("Enter MM PIN:")
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "0244123456", "25"), sentDirectAfterConfirm)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "0244123456", "25", "1", "1", "2"), sentDirectAfterConfirm)
         assertTrue(ctrlDirectAfterConfirm.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
         // 3. Carrier skips BOTH confirm number AND 1. Specify Amount directly to Enter Amount:
@@ -644,11 +661,15 @@ class AdministratorUssdFlowsTest {
         ctrlDirectBothSkipped.onPromptObserved("5. Airtime & Bundles")
         ctrlDirectBothSkipped.onPromptObserved("2. Data Bundle")
         ctrlDirectBothSkipped.onPromptObserved("1. Buy Bundle")
+        ctrlDirectBothSkipped.onPromptObserved("1. MTN Data")
         ctrlDirectBothSkipped.onPromptObserved("2. Other Number")
         ctrlDirectBothSkipped.onPromptObserved("Enter customer number:")
         ctrlDirectBothSkipped.onPromptObserved("Enter Amount (GHS 1.00 - 500.00):")
+        ctrlDirectBothSkipped.onPromptObserved("1. Confirm")
+        ctrlDirectBothSkipped.onPromptObserved("1. Proceed")
+        ctrlDirectBothSkipped.onPromptObserved("2. MoMo Wallet")
         ctrlDirectBothSkipped.onPromptObserved("Enter MM PIN:")
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "25"), sentDirectBothSkipped)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "25", "1", "1", "2"), sentDirectBothSkipped)
         assertTrue(ctrlDirectBothSkipped.sessionState.value is UssdSessionState.PausedForPinAuthorization)
     }
 
@@ -681,13 +702,17 @@ class AdministratorUssdFlowsTest {
         ctrlData.onPromptObserved("5. Airtime & Bundles")
         ctrlData.onPromptObserved("2. Data Bundle")
         ctrlData.onPromptObserved("1. Buy Bundle")
+        ctrlData.onPromptObserved("1. MTN Data")
         ctrlData.onPromptObserved("2. Other Number")
         ctrlData.onPromptObserved("Enter customer number:")
         ctrlData.onPromptObserved("Enter customer number:") // stale duplicate ignored
         ctrlData.onPromptObserved("Confirm customer number:")
         ctrlData.onPromptObserved("Enter Amount:")
+        ctrlData.onPromptObserved("1. Confirm")
+        ctrlData.onPromptObserved("1. Proceed")
+        ctrlData.onPromptObserved("2. MoMo Wallet")
         ctrlData.onPromptObserved("Enter MM PIN:")
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "0244123456", "30"), sentData)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "0244123456", "30", "1", "1", "2"), sentData)
         assertTrue(ctrlData.sessionState.value is UssdSessionState.PausedForPinAuthorization)
     }
 
@@ -857,12 +882,32 @@ class AdministratorUssdFlowsTest {
         assertEquals(listOf("5", "2"), sentData)
 
         ctrlData.onPromptObserved("1. Buy Data Bundle")
+        ctrlData.onPromptObserved("1. MTN Data")
         ctrlData.onPromptObserved("2. Buy for Other")
         ctrlData.onPromptObserved("Enter recipient number:")
         ctrlData.onPromptObserved("Enter Amount:")
+        ctrlData.onPromptObserved("1. Confirm")
+        ctrlData.onPromptObserved("1. Proceed")
+        ctrlData.onPromptObserved("2. MoMo Wallet")
         ctrlData.onPromptObserved("Enter MM PIN:")
-        assertEquals(listOf("5", "2", "1", "2", "0244123456", "20"), sentData)
+        assertEquals(listOf("5", "2", "1", "1", "2", "0244123456", "20", "1", "1", "2"), sentData)
         assertTrue(ctrlData.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+
+        // TELECEL_EVD_AIRTIME executes *111# -> 3 -> phone -> amount and ends cleanly for manual completion
+        val sentTelEvd = mutableListOf<String>()
+        val ctrlTelEvd = UssdFlowController(responseSender = { sentTelEvd.add(it); true })
+        val telEvdVars = UssdInputHandler.TransactionVariables(
+            customerPhone = "0201234567",
+            amount = "10",
+            network = NetworkType.TELECEL
+        )
+        assertTrue(ctrlTelEvd.startFlow("tx-tel-evd", flows.getValue("TELECEL_EVD_AIRTIME"), telEvdVars).isSuccess)
+        ctrlTelEvd.onPromptObserved("3. Airtime EVD")
+        ctrlTelEvd.onPromptObserved("Enter phone number:")
+        ctrlTelEvd.onPromptObserved("Enter amount:")
+        assertEquals(listOf("3", "0201234567", "10"), sentTelEvd)
+        val telEvdDone = ctrlTelEvd.sessionState.value as UssdSessionState.Completed
+        assertEquals(OutcomeCategory.PENDING, telEvdDone.outcome.category)
 
         // MTN_MERCHANT_PAY skips optional CONFIRM_MERCHANT_NUMBER directly to ENTER_AMOUNT and ends cleanly after amount
         val sentMp = mutableListOf<String>()
@@ -880,5 +925,110 @@ class AdministratorUssdFlowsTest {
         assertEquals(listOf("1", "1", "0598516996", "40"), sentMp)
         val mpDone = ctrlMp.sessionState.value as UssdSessionState.Completed
         assertEquals(OutcomeCategory.PENDING, mpDone.outcome.category)
+    }
+
+    @Test
+    fun `preset custom flows execute telecel agent, one4all, evd, momo statement, and bus withdrawal`() {
+        // 1. Telecel Agent - Comm to Float (*110# -> 2 -> 2 -> 3 -> Amount -> Operational ID)
+        val commToFloat = PresetUssdFlows.TELECEL_AGENT_FLOWS[0]
+        assertFalse(commToFloat.requiresPhone)
+        assertTrue(commToFloat.requiresAmount)
+        val sentCtf = mutableListOf<String>()
+        val ctrlCtf = UssdFlowController(responseSender = { sentCtf.add(it); true })
+        assertTrue(ctrlCtf.startFlow("tx-ctf", commToFloat.profile, UssdInputHandler.TransactionVariables(amount = "50", network = NetworkType.TELECEL)).isSuccess)
+        ctrlCtf.onPromptObserved("2. Agent Services")
+        ctrlCtf.onPromptObserved("2. Float Management")
+        ctrlCtf.onPromptObserved("3. Comm to Float")
+        ctrlCtf.onPromptObserved("Enter amount:")
+        ctrlCtf.onPromptObserved("Enter Operational ID:")
+        assertEquals(listOf("2", "2", "3", "50"), sentCtf)
+        assertTrue(ctrlCtf.sessionState.value is UssdSessionState.PausedForOperationalId)
+
+        // 2. One4All Airtime (*161*1# -> 1 -> Phone -> Phone -> Amount)
+        val o4aAirtime = PresetUssdFlows.ONE4ALL_FLOWS[0]
+        assertTrue(o4aAirtime.requiresPhone)
+        assertTrue(o4aAirtime.requiresAmount)
+        val sentO4a = mutableListOf<String>()
+        val ctrlO4a = UssdFlowController(responseSender = { sentO4a.add(it); true })
+        assertTrue(ctrlO4a.startFlow("tx-o4a", o4aAirtime.profile, UssdInputHandler.TransactionVariables(customerPhone = "0244123456", amount = "10", network = NetworkType.MTN)).isSuccess)
+        ctrlO4a.onPromptObserved("1. Airtime")
+        ctrlO4a.onPromptObserved("Enter phone number:")
+        ctrlO4a.onPromptObserved("Re-enter phone number:")
+        ctrlO4a.onPromptObserved("Enter amount:")
+        ctrlO4a.onPromptObserved("Airtime recharge completed successfully.")
+        assertEquals(listOf("1", "0244123456", "0244123456", "10"), sentO4a)
+        assertEquals(OutcomeCategory.SUCCESSFUL, (ctrlO4a.sessionState.value as UssdSessionState.Completed).outcome.category)
+
+        // 3. One4All Topup, Balance, Statement
+        assertFalse(PresetUssdFlows.ONE4ALL_FLOWS[1].requiresPhone)
+        assertTrue(PresetUssdFlows.ONE4ALL_FLOWS[1].requiresAmount)
+        assertFalse(PresetUssdFlows.ONE4ALL_FLOWS[2].requiresPhone)
+        assertFalse(PresetUssdFlows.ONE4ALL_FLOWS[2].requiresAmount)
+        assertFalse(PresetUssdFlows.ONE4ALL_FLOWS[3].requiresPhone)
+        assertFalse(PresetUssdFlows.ONE4ALL_FLOWS[3].requiresAmount)
+
+        // 4. EVD Balance (*171# -> 3 -> 1), EVD Commission (*171# -> 6), MoMo Statement (*171# -> 7 -> 4 -> 1)
+        val sentEvdBal = mutableListOf<String>()
+        val ctrlEvdBal = UssdFlowController(responseSender = { sentEvdBal.add(it); true })
+        assertTrue(ctrlEvdBal.startFlow("tx-evd-bal", PresetUssdFlows.EVD_BALANCE.profile, UssdInputHandler.TransactionVariables(network = NetworkType.MTN)).isSuccess)
+        ctrlEvdBal.onPromptObserved("3. EVD")
+        ctrlEvdBal.onPromptObserved("1. Balance")
+        ctrlEvdBal.onPromptObserved("Your EVD balance is GHS 100.00")
+        assertEquals(listOf("3", "1"), sentEvdBal)
+
+        val sentEvdCom = mutableListOf<String>()
+        val ctrlEvdCom = UssdFlowController(responseSender = { sentEvdCom.add(it); true })
+        assertTrue(ctrlEvdCom.startFlow("tx-evd-com", PresetUssdFlows.EVD_COMMISSION.profile, UssdInputHandler.TransactionVariables(network = NetworkType.MTN)).isSuccess)
+        ctrlEvdCom.onPromptObserved("6. EVD Commission")
+        ctrlEvdCom.onPromptObserved("Commission is GHS 25.00")
+        assertEquals(listOf("6"), sentEvdCom)
+
+        val sentMomoStmt = mutableListOf<String>()
+        val ctrlMomoStmt = UssdFlowController(responseSender = { sentMomoStmt.add(it); true })
+        assertTrue(ctrlMomoStmt.startFlow("tx-momo-stmt", PresetUssdFlows.MOMO_STATEMENT.profile, UssdInputHandler.TransactionVariables(network = NetworkType.MTN)).isSuccess)
+        ctrlMomoStmt.onPromptObserved("7. My Wallet")
+        ctrlMomoStmt.onPromptObserved("4. Statement")
+        ctrlMomoStmt.onPromptObserved("1. Mini Statement")
+        ctrlMomoStmt.onPromptObserved("Enter MoMo PIN:")
+        assertEquals(listOf("7", "4", "1"), sentMomoStmt)
+        assertTrue(ctrlMomoStmt.sessionState.value is UssdSessionState.PausedForPinAuthorization)
+
+        // 5. Bus Withdrawal Agent Code (*110# -> 2 -> 4 -> 2 -> Agent Code -> Amount -> Operational ID)
+        val sentBusAgent = mutableListOf<String>()
+        val ctrlBusAgent = UssdFlowController(responseSender = { sentBusAgent.add(it); true })
+        assertTrue(
+            ctrlBusAgent.startFlow(
+                "tx-bus-agent",
+                PresetUssdFlows.BUS_WITHDRAWAL_AGENT_CODE.profile,
+                UssdInputHandler.TransactionVariables(merchantCode = "123456", amount = "200", network = NetworkType.TELECEL)
+            ).isSuccess
+        )
+        ctrlBusAgent.onPromptObserved("2. Agent Services")
+        ctrlBusAgent.onPromptObserved("4. Bus Withdrawal")
+        ctrlBusAgent.onPromptObserved("2. Agent Code")
+        ctrlBusAgent.onPromptObserved("Enter Agent Code:")
+        ctrlBusAgent.onPromptObserved("Enter Amount:")
+        ctrlBusAgent.onPromptObserved("Enter Operational ID:")
+        assertEquals(listOf("2", "4", "2", "123456", "200"), sentBusAgent)
+        assertTrue(ctrlBusAgent.sessionState.value is UssdSessionState.PausedForOperationalId)
+
+        // 6. Bus Withdrawal Till Number (*110# -> 2 -> 4 -> 1 -> Till Number -> Amount -> Operational ID)
+        val sentBusTill = mutableListOf<String>()
+        val ctrlBusTill = UssdFlowController(responseSender = { sentBusTill.add(it); true })
+        assertTrue(
+            ctrlBusTill.startFlow(
+                "tx-bus-till",
+                PresetUssdFlows.BUS_WITHDRAWAL_TILL_NUMBER.profile,
+                UssdInputHandler.TransactionVariables(merchantCode = "987654", amount = "150", network = NetworkType.TELECEL)
+            ).isSuccess
+        )
+        ctrlBusTill.onPromptObserved("2. Agent Services")
+        ctrlBusTill.onPromptObserved("4. Bus Withdrawal")
+        ctrlBusTill.onPromptObserved("1. Till Number")
+        ctrlBusTill.onPromptObserved("Enter Till Number:")
+        ctrlBusTill.onPromptObserved("Enter Amount:")
+        ctrlBusTill.onPromptObserved("Enter Operational ID:")
+        assertEquals(listOf("2", "4", "1", "987654", "150"), sentBusTill)
+        assertTrue(ctrlBusTill.sessionState.value is UssdSessionState.PausedForOperationalId)
     }
 }

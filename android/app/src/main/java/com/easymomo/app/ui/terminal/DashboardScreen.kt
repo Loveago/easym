@@ -105,6 +105,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.easymomo.app.R
 import com.easymomo.app.data.local.CustomerNumberEntity
 import com.easymomo.app.data.local.TransactionEntity
@@ -112,10 +114,13 @@ import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionStatus
 import com.easymomo.app.domain.model.TransactionType
 import com.easymomo.app.ui.customussd.CustomUssdViewModel
+import com.easymomo.app.ussd.ActiveSimInfo
 import com.easymomo.app.ussd.CustomUssdRepeatCoordinator
 import com.easymomo.app.ussd.SimSlotInfo
 import com.easymomo.app.ussd.capture.CustomUssdOperationType
 import com.easymomo.app.ussd.capture.SimpleCustomUssdFlow
+import com.easymomo.app.ussd.model.PresetUssdFlow
+import com.easymomo.app.ussd.model.PresetUssdFlows
 import com.easymomo.app.ussd.model.UssdSessionState
 import com.easymomo.app.ui.theme.EasyMoMoCard
 import com.easymomo.app.ui.theme.AmberAccent
@@ -164,6 +169,7 @@ fun DashboardScreen(
     onOpenSimAndDiagnostics: () -> Unit,
     onOpenDataBundles: (NetworkType) -> Unit,
     onOpenCustomUssd: () -> Unit,
+    onOpenBusWithdrawal: () -> Unit = {},
     onNavigateToReview: (localId: String, isCustomerLed: Boolean) -> Unit,
     onLogout: () -> Unit
 ) {
@@ -394,17 +400,7 @@ fun DashboardScreen(
                                 }
                             }
                         },
-                        onEvdAirtime = {
-                            runIfEntitled {
-                                runWithCallPermission {
-                                    terminalViewModel.prepareAndRunInlineUssd(
-                                        type = TransactionType.EVD_AIRTIME,
-                                        overrideNetwork = NetworkType.MTN,
-                                        onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                    )
-                                }
-                            }
-                        },
+                        onEvdAirtime = { launchOrSelectNetwork(TransactionType.EVD_AIRTIME) },
                         onOpenCustomUssd = {
                             runIfEntitled {
                                 showCustomUssdPopup = true
@@ -530,7 +526,23 @@ fun DashboardScreen(
     if (showCustomUssdPopup) {
         CustomUssdPickerDialog(
             flows = customUssdState.simpleFlows,
+            activeSims = uiState.activeSims,
             onDismiss = { showCustomUssdPopup = false },
+            onRunPresetFlow = { preset, chosenSimId ->
+                showCustomUssdPopup = false
+                runWithCallPermission {
+                    terminalViewModel.runPresetUssdFlow(
+                        preset = preset,
+                        overrideSimId = chosenSimId
+                    )
+                }
+            },
+            onOpenBusWithdrawal = {
+                showCustomUssdPopup = false
+                runIfEntitled {
+                    onOpenBusWithdrawal()
+                }
+            },
             onRunFlow = { flow, repeatCount ->
                 showCustomUssdPopup = false
                 runWithCallPermission {
@@ -1016,10 +1028,11 @@ private fun AmountPhoneInputCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 68.dp)
                         .clip(RoundedShape10)
                         .background(TerminalSurfaceVariant)
-                        .border(1.dp, TerminalBorder, RoundedShape10)
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                        .border(1.5.dp, TerminalBorder, RoundedShape10)
+                        .padding(horizontal = 12.dp, vertical = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     BasicTextField(
@@ -1070,10 +1083,11 @@ private fun AmountPhoneInputCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 68.dp)
                         .clip(RoundedShape10)
                         .background(TerminalSurfaceVariant)
-                        .border(1.dp, TerminalBorder, RoundedShape10)
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                        .border(1.5.dp, TerminalBorder, RoundedShape10)
+                        .padding(horizontal = 12.dp, vertical = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     BasicTextField(
@@ -1551,7 +1565,7 @@ private fun SubscriptionGateDialog(
 }
 
 @Composable
-private fun InlineUssdDialog(
+internal fun InlineUssdDialog(
     terminalViewModel: TerminalViewModel,
     activeTransaction: TransactionEntity?,
     selectedSimLabel: String?,
@@ -1889,193 +1903,212 @@ private fun AccessibilityPromptDialog(
 @Composable
 private fun CustomUssdPickerDialog(
     flows: List<SimpleCustomUssdFlow>,
+    activeSims: List<ActiveSimInfo>,
     onDismiss: () -> Unit,
+    onRunPresetFlow: (PresetUssdFlow, Int?) -> Unit,
+    onOpenBusWithdrawal: () -> Unit,
     onRunFlow: (SimpleCustomUssdFlow, Int) -> Unit,
     onEditFlow: (SimpleCustomUssdFlow) -> Unit,
     onCreateNew: () -> Unit
 ) {
     var repeatCountText by remember { mutableStateOf("1") }
     val repeatCount = CustomUssdRepeatCoordinator.clampRepeatCount(repeatCountText.toIntOrNull() ?: 1)
+    var chosenSimId by remember { mutableStateOf<Int?>(null) }
+    var activeGroupTitle by remember { mutableStateOf<String?>(null) }
+    var activeGroupFlows by remember { mutableStateOf<List<PresetUssdFlow>>(emptyList()) }
 
-    androidx.compose.material3.AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Custom USSD",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Use the custom USSD feature to process EVD, data bundling, mash-up, and more.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = if (flows.isEmpty()) {
-                        "No saved custom USSDs yet. Tap below to create one, then enter your amount & phone number on Home to run it."
-                    } else {
-                        "Tap a saved custom USSD below to run it with the amount and phone number entered on Home."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-
-                Surface(
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 24.dp)
+                .heightIn(max = 640.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = TerminalSurface,
+            border = BorderStroke(1.dp, TerminalBorder)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedShape8,
-                    color = TerminalBackground,
-                    border = BorderStroke(1.dp, TerminalBorder)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Number of times to run",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "Custom USSD & Quick Flows",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
+                        Text(
+                            text = "Flows that don't need a phone number run on their own.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Close",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+
+                // SIM selector for Quick Flows
+                if (activeSims.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Run with SIM:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary
+                        )
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val canDecrement = repeatCount > CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT
-                            Surface(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedShape8)
-                                    .clickable(enabled = canDecrement) {
-                                        repeatCountText = CustomUssdRepeatCoordinator
-                                            .clampRepeatCount(repeatCount - 1)
-                                            .toString()
-                                    },
-                                shape = RoundedShape8,
-                                color = TerminalSurface,
-                                border = BorderStroke(1.dp, TerminalBorder)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "−",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (canDecrement) TextPrimary else TextMuted
-                                    )
-                                }
-                            }
-                            OutlinedTextField(
-                                value = repeatCountText,
-                                onValueChange = { raw ->
-                                    val digits = raw.filter { it.isDigit() }.take(2)
-                                    if (digits.isEmpty()) {
-                                        repeatCountText = ""
-                                    } else {
-                                        val parsed = digits.toIntOrNull() ?: 1
-                                        repeatCountText = when {
-                                            parsed > CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT ->
-                                                CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT.toString()
-                                            parsed < CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT ->
-                                                CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT.toString()
-                                            else -> digits
-                                        }
-                                    }
-                                },
-                                singleLine = true,
-                                textStyle = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    color = TextPrimary
-                                ),
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Number,
-                                    imeAction = ImeAction.Done
-                                ),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = EmeraldPrimary,
-                                    unfocusedBorderColor = TerminalBorder,
-                                    focusedContainerColor = TerminalSurface,
-                                    unfocusedContainerColor = TerminalSurface,
-                                    cursorColor = EmeraldPrimary
-                                ),
-                                modifier = Modifier.width(68.dp)
+                            FilterChip(
+                                selected = chosenSimId == null,
+                                onClick = { chosenSimId = null },
+                                label = { Text("Auto (Per-Feature Settings)") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = EmeraldPrimaryContainer,
+                                    selectedLabelColor = OnEmeraldPrimaryContainer
+                                )
                             )
-                            val canIncrement = repeatCount < CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT
-                            Surface(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedShape8)
-                                    .clickable(enabled = canIncrement) {
-                                        repeatCountText = CustomUssdRepeatCoordinator
-                                            .clampRepeatCount(repeatCount + 1)
-                                            .toString()
-                                    },
-                                shape = RoundedShape8,
-                                color = TerminalSurface,
-                                border = BorderStroke(1.dp, TerminalBorder)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "+",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (canIncrement) TextPrimary else TextMuted
+                            activeSims.forEach { sim ->
+                                FilterChip(
+                                    selected = chosenSimId == sim.subscriptionId,
+                                    onClick = { chosenSimId = sim.subscriptionId },
+                                    label = { Text(sim.label) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = EmeraldPrimaryContainer,
+                                        selectedLabelColor = OnEmeraldPrimaryContainer
                                     )
-                                }
+                                )
                             }
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf(1, 2, 3, 5).forEach { count ->
-                                val selected = repeatCount == count
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .heightIn(min = 32.dp)
-                                        .clip(RoundedShape6)
-                                        .clickable { repeatCountText = count.toString() },
-                                    shape = RoundedShape6,
-                                    color = if (selected) EmeraldPrimaryContainer else TerminalSurface,
-                                    border = BorderStroke(1.dp, if (selected) EmeraldPrimary else TerminalBorder)
+                    }
+                }
+
+                // Default Quick Flows (responsive 2-column on standard/large screens, 1-column on compact screens)
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val useSingleColumn = maxWidth < 330.dp
+                    val buttonPairs = listOf(
+                        Triple("TELECEL AGENT", Icons.Outlined.SimCard, EmeraldPrimary) to {
+                            activeGroupTitle = "Telecel Agent"
+                            activeGroupFlows = PresetUssdFlows.TELECEL_AGENT_FLOWS
+                        },
+                        Triple("ONE4ALL", Icons.Outlined.PhoneAndroid, EmeraldPrimary) to {
+                            activeGroupTitle = "One4All"
+                            activeGroupFlows = PresetUssdFlows.ONE4ALL_FLOWS
+                        },
+                        Triple("EVD BALANCE", Icons.Outlined.AccountBalanceWallet, EmeraldPrimary) to {
+                            onRunPresetFlow(PresetUssdFlows.EVD_BALANCE, chosenSimId)
+                        },
+                        Triple("EVD COMMISSION", Icons.Outlined.Payments, AmberAccent) to {
+                            onRunPresetFlow(PresetUssdFlows.EVD_COMMISSION, chosenSimId)
+                        },
+                        Triple("MOMO STATEMENT", Icons.AutoMirrored.Outlined.ReceiptLong, EmeraldPrimary) to {
+                            onRunPresetFlow(PresetUssdFlows.MOMO_STATEMENT, chosenSimId)
+                        },
+                        Triple("BUS WITHDRAW", Icons.Outlined.AccountBalanceWallet, EmeraldPrimary) to {
+                            onOpenBusWithdrawal()
+                        }
+                    )
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (useSingleColumn) {
+                            buttonPairs.forEach { (meta, action) ->
+                                TerminalActionButton(
+                                    label = meta.first,
+                                    icon = meta.second,
+                                    containerColor = meta.third,
+                                    onClick = action,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        } else {
+                            buttonPairs.chunked(2).forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier.padding(vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "${count}x",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (selected) OnEmeraldPrimaryContainer else TextSecondary
+                                    rowItems.forEach { (meta, action) ->
+                                        TerminalActionButton(
+                                            label = meta.first,
+                                            icon = meta.second,
+                                            containerColor = meta.third,
+                                            onClick = action,
+                                            modifier = Modifier.weight(1f)
                                         )
                                     }
                                 }
                             }
                         }
-                        if (repeatCount > 1) {
-                            Text(
-                                text = "Will run $repeatCount times back-to-back as each USSD dialog closes.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = EmeraldPrimary
-                            )
-                        }
                     }
                 }
 
+                TerminalActionButton(
+                    label = "CREATE CUSTOM USSD",
+                    icon = Icons.Outlined.Dialpad,
+                    onClick = onCreateNew,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 if (flows.isNotEmpty()) {
+                    HorizontalDivider(color = TerminalBorder)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Saved Custom USSDs (${flows.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(1, 2, 3, 5).forEach { count ->
+                                val selected = repeatCount == count
+                                Surface(
+                                    modifier = Modifier
+                                        .clip(RoundedShape6)
+                                        .clickable { repeatCountText = count.toString() },
+                                    shape = RoundedShape6,
+                                    color = if (selected) EmeraldPrimaryContainer else TerminalBackground,
+                                    border = BorderStroke(1.dp, if (selected) EmeraldPrimary else TerminalBorder)
+                                ) {
+                                    Text(
+                                        text = "${count}x",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selected) OnEmeraldPrimaryContainer else TextSecondary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         flows.forEach { flow ->
@@ -2133,28 +2166,64 @@ private fun CustomUssdPickerDialog(
                         }
                     }
                 }
-
-                Button(
-                    onClick = onCreateNew,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedShape8,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EmeraldPrimary,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text(
-                        text = "CREATE / EDIT CUSTOM USSD",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
             }
         }
-    )
+    }
+
+    activeGroupTitle?.let { groupTitle ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { activeGroupTitle = null },
+            title = {
+                Text(
+                    text = groupTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    activeGroupFlows.forEach { preset ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedShape8)
+                                .clickable {
+                                    activeGroupTitle = null
+                                    onRunPresetFlow(preset, chosenSimId)
+                                },
+                            shape = RoundedShape8,
+                            color = TerminalBackground,
+                            border = BorderStroke(1.dp, TerminalBorder)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = preset.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldPrimary
+                                )
+                                Text(
+                                    text = preset.subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { activeGroupTitle = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }

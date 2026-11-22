@@ -325,8 +325,10 @@ class CustomUssdRepository(
             else -> 0
         }
         val parsedSteps = parseSteps(entity.stepsJson)
-            .map { it.value.ifBlank { it.label }.trim() }
-            .filter { it.isNotEmpty() }
+            .mapNotNull { draft ->
+                val token = draft.value.orEmpty().ifBlank { draft.label.orEmpty() }.trim()
+                token.ifEmpty { null }
+            }
             .let { tokens ->
                 if (opType == CustomUssdOperationType.STEP_BY_STEP &&
                     entity.entryCode.isNotBlank() &&

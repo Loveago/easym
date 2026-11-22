@@ -43,6 +43,7 @@ import com.easymomo.app.ussd.UssdSessionManager
 import com.easymomo.app.ussd.capture.CustomUssdFlowBuilder
 import com.easymomo.app.ussd.capture.CustomUssdOperationType
 import com.easymomo.app.ussd.capture.SimpleCustomUssdFlow
+import com.easymomo.app.ussd.model.PresetUssdFlow
 import com.easymomo.app.ussd.model.OutcomeCategory
 import com.easymomo.app.ussd.model.UssdFlowProfile
 import com.easymomo.app.ussd.model.UssdOutcome
@@ -530,12 +531,16 @@ class TerminalViewModel(
 
     fun saveSimConfiguration(
         networkSelections: Map<NetworkType, ActiveSimInfo?>,
-        featureSelections: Map<Pair<NetworkType, TransactionType>, ActiveSimInfo?>
+        featureSelections: Map<Pair<NetworkType, TransactionType>, ActiveSimInfo?>,
+        customUssdFeatureSims: Map<String, Int> = _uiState.value.agentSettings.customUssdFeatureSims
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isSavingSimSettings = true, simSettingsSavedMessage = null) }
             try {
                 simManager.saveAllSimConfiguration(networkSelections, featureSelections)
+                simManager.updateAgentSettings {
+                    it.copy(customUssdFeatureSims = customUssdFeatureSims)
+                }
                 val resolutions = simManager.reconcileAllNetworks()
                 val updatedFeatures = simManager.allFeatureSelectionsFlow.first()
                 val firstResolvedSimId = resolutions.values.firstNotNullOfOrNull { it.resolvedSim?.subscriptionId }
@@ -1071,6 +1076,236 @@ class TerminalViewModel(
         }
     }
 
+    fun runPresetUssdFlow(
+        preset: PresetUssdFlow,
+        overrideAmount: String? = null,
+        overrideCodeOrTill: String? = null,
+        overrideSimId: Int? = null
+    ): String? {
+        if (!requireActiveAccessOrShowGate()) return null
+        val state = _uiState.value
+        if (sessionManager.getActiveSessionId() != null || state.inlineUssdVisible) {
+            return "Another USSD session is already running."
+        }
+
+        var normalizedPhone = ""
+        if (preset.requiresPhone) {
+            val phoneCheck = inputHandler.validatePhoneForNetwork(state.phoneText, NetworkType.MTN, isPorted = true)
+            if (phoneCheck is UssdInputHandler.ValidationResult.Invalid) {
+                _uiState.update { it.copy(validationError = phoneCheck.reason) }
+                return phoneCheck.reason
+            }
+            normalizedPhone = NetworkPrefixDetector.normalizeGhanaPhone(state.phoneText)
+        }
+
+        val cleanCode = (overrideCodeOrTill ?: "").trim()
+        if (preset.requiresCodeOrTill) {
+            if (cleanCode.isBlank()) {
+                val msg = "Enter the Agent Code or Till Number."
+                _uiState.update { it.copy(validationError = msg) }
+                return msg
+            }
+            if (preset.id == "BUS_WITHDRAWAL_TILL_NUMBER" && !cleanCode.all { it.isDigit() }) {
+                val msg = "Till Number must contain numbers only."
+                _uiState.update { it.copy(validationError = msg) }
+                return msg
+            }
+            if (!cleanCode.all { it.isLetterOrDigit() }) {
+                val msg = "Code must contain letters and numbers only."
+                _uiState.update { it.copy(validationError = msg) }
+                return msg
+            }
+        }
+
+        var amountValue = 0.0
+        var formattedAmount = ""
+        val rawAmount = overrideAmount ?: state.amountText
+        if (preset.requiresAmount) {
+            when (val amtCheck = inputHandler.formatAmount(rawAmount)) {
+                is UssdInputHandler.ValidationResult.Invalid -> {
+                    _uiState.update { it.copy(validationError = amtCheck.reason) }
+                    return amtCheck.reason
+                }
+                is UssdInputHandler.ValidationResult.Valid -> {
+                    amountValue = amtCheck.value.toDouble()
+                    formattedAmount = formatUssdAmount(amountValue)
+                }
+            }
+        }
+
+        _uiState.update { it.copy(validationError = null) }
+
+        viewModelScope.launch {
+            val activeSims = withContext(Dispatchers.IO) { simManager.getActiveSims() }
+            val effectiveSimId = overrideSimId
+                ?: state.agentSettings.customUssdFeatureSims[preset.featureKey.key]
+            val explicitSim = effectiveSimId?.let { id ->
+                activeSims.firstOrNull { it.subscriptionId == id }
+            }
+            val resolvedSim = if (explicitSim != null) {
+                explicitSim
+            } else if (preset.network != NetworkType.UNKNOWN) {
+                val res = withContext(Dispatchers.IO) {
+                    simManager.resolveForNetworkAndFeature(preset.network, preset.transactionType)
+                }
+                if (res.status == SimResolutionStatus.REQUIRES_SELECTION ||
+                    res.status == SimResolutionStatus.SIM_UNAVAILABLE_ATTENTION_REQUIRED ||
+                    res.status == SimResolutionStatus.NO_ACTIVE_SIM ||
+                    res.status == SimResolutionStatus.PERMISSION_REQUIRED
+                ) {
+                    val draft = withContext(Dispatchers.IO) {
+                        txRepo.createDraftTransaction(
+                            network = preset.network,
+                            type = preset.transactionType,
+                            processingMethod = ProcessingMethod.AGENT_USSD,
+                            recipientNumber = normalizedPhone.ifBlank { cleanCode.ifBlank { "SELF" } },
+                            amount = amountValue,
+                            bundleId = preset.id,
+                            bundleName = preset.title
+                        )
+                    }
+                    withContext(Dispatchers.IO) {
+                        txRepo.transitionStatusSafely(
+                            localId = draft.localId,
+                            newStatus = TransactionStatus.CANCELLED,
+                            confirmationSource = "SIM_NOT_SELECTED",
+                            providerResponse = res.message
+                        )
+                    }?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
+                        ?: _uiState.update { it.copy(activeTransaction = draft) }
+                    _uiState.update {
+                        it.copy(
+                            activeDraft = draft,
+                            inlineUssdVisible = true,
+                            selectedSimLabel = preset.network.displayName,
+                            customUssdCode = preset.subtitle
+                        )
+                    }
+                    sessionManager.updateState(
+                        UssdSessionState.ManualInterventionRequired(draft.localId, res.message, null)
+                    )
+                    refreshDeviceStatus(force = true)
+                    return@launch
+                }
+                res.resolvedSim ?: activeSims.firstOrNull { it.subscriptionId == state.selectedSimId }
+                    ?: activeSims.firstOrNull()
+            } else {
+                activeSims.firstOrNull { it.subscriptionId == state.selectedSimId }
+                    ?: activeSims.firstOrNull()
+            }
+
+            val txNetwork = if (preset.network != NetworkType.UNKNOWN) {
+                preset.network
+            } else {
+                resolvedSim?.detectedCarrierNetwork?.takeIf { it != NetworkType.UNKNOWN } ?: NetworkType.MTN
+            }
+
+            val draft = withContext(Dispatchers.IO) {
+                txRepo.createDraftTransaction(
+                    network = txNetwork,
+                    type = preset.transactionType,
+                    processingMethod = ProcessingMethod.AGENT_USSD,
+                    recipientNumber = normalizedPhone.ifBlank { cleanCode.ifBlank { "SELF" } },
+                    amount = amountValue,
+                    bundleId = preset.id,
+                    bundleName = preset.title
+                )
+            }
+
+            if (resolvedSim == null) {
+                val msg = "No active SIM card detected. Insert a SIM and check Settings → SIM Management."
+                withContext(Dispatchers.IO) {
+                    txRepo.transitionStatusSafely(
+                        localId = draft.localId,
+                        newStatus = TransactionStatus.CANCELLED,
+                        confirmationSource = "SIM_NOT_SELECTED",
+                        providerResponse = msg
+                    )
+                }?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
+                    ?: _uiState.update { it.copy(activeTransaction = draft) }
+                _uiState.update {
+                    it.copy(
+                        activeDraft = draft,
+                        inlineUssdVisible = true,
+                        customUssdCode = preset.subtitle
+                    )
+                }
+                sessionManager.updateState(
+                    UssdSessionState.ManualInterventionRequired(draft.localId, msg, null)
+                )
+                return@launch
+            }
+
+            val transitioned = withContext(Dispatchers.IO) {
+                txRepo.transitionStatus(
+                    localId = draft.localId,
+                    newStatus = TransactionStatus.PROCESSING,
+                    details = "Starting ${preset.title}"
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    activeDraft = draft,
+                    activeTransaction = transitioned,
+                    selectedSimLabel = resolvedSim.label,
+                    inlineUssdVisible = true,
+                    merchantCode = cleanCode,
+                    customUssdCode = preset.subtitle
+                )
+            }
+
+            val vars = UssdInputHandler.TransactionVariables(
+                customerPhone = normalizedPhone,
+                recipientPhone = normalizedPhone,
+                amount = formattedAmount,
+                bundleCode = "",
+                bundlePrice = formattedAmount,
+                network = if (preset.network == NetworkType.UNKNOWN) NetworkType.UNKNOWN else txNetwork,
+                merchantCode = cleanCode,
+                customUssdCode = preset.subtitle,
+                operationalId = if (_uiState.value.agentSettings.autoEnterTelecelOperationalId) {
+                    _uiState.value.telecelOperationalId.trim()
+                } else {
+                    ""
+                },
+                isPortedNumber = if (preset.network == NetworkType.UNKNOWN) true else _uiState.value.isPorted
+            )
+
+            val startResult = flowController.startFlow(draft.localId, preset.profile, vars)
+            if (startResult.isFailure) return@launch
+
+            EasyMoMoAccessibilityService.instance?.resetSessionObservation()
+            val launchResult = ussdLauncher.launchUssd(
+                ussdCode = preset.profile.entryCode,
+                subscriptionId = resolvedSim.subscriptionId,
+                forceInteractiveDialog = true,
+                onTelephonyResponse = { response -> flowController.onPromptObserved(response) },
+                onTelephonyFailure = { _ -> flowController.cancelSession() }
+            )
+            if (launchResult is UssdLaunchResult.Error) {
+                withContext(Dispatchers.IO) {
+                    txRepo.transitionStatusSafely(
+                        localId = draft.localId,
+                        newStatus = TransactionStatus.FAILED,
+                        confirmationSource = "LAUNCHER_ERROR",
+                        providerResponse = launchResult.message
+                    )
+                }?.let { updated -> _uiState.update { it.copy(activeTransaction = updated) } }
+                sessionManager.endSession(
+                    UssdSessionState.ManualInterventionRequired(draft.localId, launchResult.message, null)
+                )
+                return@launch
+            }
+
+            timeoutJob?.cancel()
+            timeoutJob = viewModelScope.launch {
+                delay(preset.profile.timeoutSeconds * 1000L)
+                flowController.onTimeout()
+            }
+        }
+        return null
+    }
+
     private suspend fun launchSingleCustomUssdRun(
         flow: SimpleCustomUssdFlow,
         normalizedPhone: String,
@@ -1196,7 +1431,7 @@ class TerminalViewModel(
             } else {
                 ""
             },
-            isPortedNumber = _uiState.value.isPorted
+            isPortedNumber = true
         )
 
         val startResult = flowController.startFlow(draft.localId, profile, vars)

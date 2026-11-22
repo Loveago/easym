@@ -46,7 +46,7 @@
       "flow_id": "MTN_DATA",
       "network": "MTN",
       "transaction_type": "DATA",
-      "version": 12,
+      "version": 13,
       "entry_code": "*171#",
       "timeout_seconds": 90,
       "enabled": true,
@@ -56,12 +56,16 @@
         { "id": "START", "type": "INITIATE_USSD", "next": "SELECT_OPTION_5" },
         { "id": "SELECT_OPTION_5", "type": "MATCH_PROMPT", "expected_prompts": ["airtime", "bundle", "5.", "5)", "transfer money", "allow cash out", "momo"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "5", "next": "SELECT_OPTION_2" },
         { "id": "SELECT_OPTION_2", "type": "MATCH_PROMPT", "expected_prompts": ["bundle", "data", "2.", "2)"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "2", "next": "SELECT_OPTION_1" },
-        { "id": "SELECT_OPTION_1", "type": "MATCH_PROMPT", "expected_prompts": ["bundle", "data", "buy", "1.", "1)"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "SELECT_OPTION_2_SUB" },
+        { "id": "SELECT_OPTION_1", "type": "MATCH_PROMPT", "expected_prompts": ["bundle", "data", "buy", "1.", "1)"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "SELECT_OPTION_1_SUB" },
+        { "id": "SELECT_OPTION_1_SUB", "type": "MATCH_PROMPT", "expected_prompts": ["1.", "1)", "data", "bundle", "buy", "mtn", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "SELECT_OPTION_2_SUB" },
         { "id": "SELECT_OPTION_2_SUB", "type": "MATCH_PROMPT", "expected_prompts": ["other", "self", "2.", "2)", "bundle"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "2", "next": "ENTER_CUSTOMER_NUMBER" },
         { "id": "ENTER_CUSTOMER_NUMBER", "type": "MATCH_PROMPT", "expected_prompts": ["number", "recipient", "phone", "mobile"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_CUSTOMER_PHONE", "variable": "customer_phone", "next": "CONFIRM_CUSTOMER_NUMBER" },
         { "id": "CONFIRM_CUSTOMER_NUMBER", "type": "MATCH_PROMPT", "optional": true, "skip_to": "SELECT_OPTION_1_AMOUNT", "expected_prompts": ["re-enter", "reenter", "repeat", "confirm", "again", "retype", "verify"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_CUSTOMER_PHONE", "variable": "customer_phone", "next": "SELECT_OPTION_1_AMOUNT" },
         { "id": "SELECT_OPTION_1_AMOUNT", "type": "MATCH_PROMPT", "optional": true, "skip_to": "ENTER_AMOUNT", "expected_prompts": ["1.", "1)", "specify", "custom", "flexi"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "ENTER_AMOUNT" },
-        { "id": "ENTER_AMOUNT", "type": "MATCH_PROMPT", "expected_prompts": ["amount", "ghs"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_AMOUNT", "variable": "amount", "next": "AUTHORIZE_PIN" },
+        { "id": "ENTER_AMOUNT", "type": "MATCH_PROMPT", "expected_prompts": ["amount", "ghs"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_AMOUNT", "variable": "amount", "next": "CONFIRM_OPTION_1_A" },
+        { "id": "CONFIRM_OPTION_1_A", "type": "MATCH_PROMPT", "expected_prompts": ["1.", "1)", "confirm", "yes", "proceed", "buy", "momo", "bundle", "data", "pay"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "CONFIRM_OPTION_1_B" },
+        { "id": "CONFIRM_OPTION_1_B", "type": "MATCH_PROMPT", "expected_prompts": ["1.", "1)", "confirm", "yes", "proceed", "buy", "momo", "bundle", "data", "pay"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "1", "next": "CONFIRM_OPTION_2" },
+        { "id": "CONFIRM_OPTION_2", "type": "MATCH_PROMPT", "expected_prompts": ["2.", "2)", "wallet", "momo", "pay", "confirm", "other"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "2", "next": "AUTHORIZE_PIN" },
         { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "momo pin", "secret code", "mm pin", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "response_type": "MANUAL_SENSITIVE_INPUT", "next": "FINAL_RESULT" },
         { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "response_type": "TERMINAL_RESULT", "success_prompts": ["success", "activated", "completed", "bundle"], "failure_prompts": ["failed", "invalid", "insufficient"] }
       ]
@@ -266,6 +270,23 @@
         { "id": "ENTER_OPERATIONAL_ID", "type": "MATCH_PROMPT", "expected_prompts": ["operational id", "operator id", "operation id", "agent id", "operational", "operator"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_OPERATIONAL_ID", "response_type": "MANUAL_OPERATIONAL_ID", "next": "AUTHORIZE_PIN" },
         { "id": "AUTHORIZE_PIN", "type": "REQUIRE_AUTHORIZATION", "expected_prompts": ["enter pin", "pin"], "match_mode": "NORMALIZED_TEXT", "action": "PAUSE_FOR_PIN", "response_type": "MANUAL_SENSITIVE_INPUT", "next": "FINAL_RESULT" },
         { "id": "FINAL_RESULT", "type": "MATCH_RESULT", "response_type": "TERMINAL_RESULT", "success_prompts": ["success", "recharged", "completed"], "failure_prompts": ["failed", "invalid", "insufficient"] }
+      ]
+    },
+    {
+      "flow_id": "TELECEL_EVD_AIRTIME",
+      "network": "TELECEL",
+      "transaction_type": "EVD_AIRTIME",
+      "version": 2,
+      "entry_code": "*111#",
+      "timeout_seconds": 90,
+      "enabled": true,
+      "verified_with_sim": true,
+      "status": "SUPPLIED_SEQUENCE",
+      "steps": [
+        { "id": "START", "type": "INITIATE_USSD", "next": "SELECT_OPTION_3" },
+        { "id": "SELECT_OPTION_3", "type": "MATCH_PROMPT", "expected_prompts": ["3.", "3)", "3:", "airtime", "evd", "recharge", "topup", "top-up", "telecel", "select"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_MENU_OPTION", "response_type": "STATIC_OPTION", "menu_option": "3", "next": "ENTER_CUSTOMER_NUMBER" },
+        { "id": "ENTER_CUSTOMER_NUMBER", "type": "MATCH_PROMPT", "expected_prompts": ["number", "phone", "mobile", "recipient", "msisdn", "enter"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_CUSTOMER_PHONE", "variable": "customer_phone", "next": "ENTER_AMOUNT" },
+        { "id": "ENTER_AMOUNT", "type": "MATCH_PROMPT", "expected_prompts": ["amount", "ghs", "cedis", "enter"], "match_mode": "NORMALIZED_TEXT", "action": "SEND_VARIABLE", "response_type": "TRANSACTION_AMOUNT", "variable": "amount" }
       ]
     },
     {

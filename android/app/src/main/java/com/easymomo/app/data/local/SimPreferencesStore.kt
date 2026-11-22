@@ -37,7 +37,8 @@ data class AgentSettings(
     val hideTodayTotalsOnHome: Boolean = false,
     val customerCloudSyncEnabled: Boolean = true,
     val darkModeEnabled: Boolean = false,
-    val autoEnterTelecelOperationalId: Boolean = false
+    val autoEnterTelecelOperationalId: Boolean = false,
+    val customUssdFeatureSims: Map<String, Int> = emptyMap()
 )
 
 /**
@@ -124,6 +125,7 @@ class SimPreferencesStore(private val context: Context) : SimSelectionStore {
     private val customerCloudSyncKey = booleanPreferencesKey("agent_customer_cloud_sync_enabled")
     private val darkModeEnabledKey = booleanPreferencesKey("agent_dark_mode_enabled")
     private val autoEnterTelecelOpIdKey = booleanPreferencesKey("agent_auto_enter_telecel_op_id")
+    private val customUssdFeatureSimsKey = stringPreferencesKey("agent_custom_ussd_feature_sims")
     private val lastCustomerSyncAtKey = longPreferencesKey("customer_sync_last_at")
     private val lastCustomerSyncErrorKey = stringPreferencesKey("customer_sync_last_error")
     private val lastCustomerSyncUserIdKey = stringPreferencesKey("customer_sync_last_user_id")
@@ -137,7 +139,8 @@ class SimPreferencesStore(private val context: Context) : SimSelectionStore {
                 hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false,
                 customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true,
                 darkModeEnabled = prefs[darkModeEnabledKey] ?: false,
-                autoEnterTelecelOperationalId = prefs[autoEnterTelecelOpIdKey] ?: false
+                autoEnterTelecelOperationalId = prefs[autoEnterTelecelOpIdKey] ?: false,
+                customUssdFeatureSims = decodeCustomUssdFeatureSims(prefs[customUssdFeatureSimsKey])
             )
         }
 
@@ -150,7 +153,8 @@ class SimPreferencesStore(private val context: Context) : SimSelectionStore {
                 hideTodayTotalsOnHome = prefs[hideTodayTotalsKey] ?: false,
                 customerCloudSyncEnabled = prefs[customerCloudSyncKey] ?: true,
                 darkModeEnabled = prefs[darkModeEnabledKey] ?: false,
-                autoEnterTelecelOperationalId = prefs[autoEnterTelecelOpIdKey] ?: false
+                autoEnterTelecelOperationalId = prefs[autoEnterTelecelOpIdKey] ?: false,
+                customUssdFeatureSims = decodeCustomUssdFeatureSims(prefs[customUssdFeatureSimsKey])
             )
             val updated = transform(current)
             prefs[defaultNetworkModeKey] = updated.defaultNetworkMode
@@ -160,7 +164,34 @@ class SimPreferencesStore(private val context: Context) : SimSelectionStore {
             prefs[customerCloudSyncKey] = updated.customerCloudSyncEnabled
             prefs[darkModeEnabledKey] = updated.darkModeEnabled
             prefs[autoEnterTelecelOpIdKey] = updated.autoEnterTelecelOperationalId
+            if (updated.customUssdFeatureSims.isEmpty()) {
+                prefs.remove(customUssdFeatureSimsKey)
+            } else {
+                prefs[customUssdFeatureSimsKey] = encodeCustomUssdFeatureSims(updated.customUssdFeatureSims)
+            }
         }
+    }
+
+    private fun decodeCustomUssdFeatureSims(raw: String?): Map<String, Int> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return buildMap {
+            raw.split(",").forEach { entry ->
+                val idx = entry.indexOf('=')
+                if (idx > 0) {
+                    val key = entry.substring(0, idx).trim()
+                    val value = entry.substring(idx + 1).trim().toIntOrNull()
+                    if (key.isNotEmpty() && value != null && value >= 0) {
+                        put(key, value)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun encodeCustomUssdFeatureSims(map: Map<String, Int>): String {
+        return map.entries
+            .filter { it.key.isNotBlank() && it.value >= 0 }
+            .joinToString(",") { "${it.key}=${it.value}" }
     }
 
     val customerSyncMetaFlow: Flow<Triple<Long, String?, String?>> =
@@ -373,15 +404,18 @@ class SimPreferencesStore(private val context: Context) : SimSelectionStore {
             TransactionType.EVD_AIRTIME,
             TransactionType.GIG,
             TransactionType.MERCHANT_PAY,
-            TransactionType.BALANCE
+            TransactionType.BALANCE,
+            TransactionType.CUSTOM_USSD
         )
 
         val TELECEL_AT_SIM_FEATURES = listOf(
             TransactionType.CASH_IN,
             TransactionType.DATA,
             TransactionType.AIRTIME,
+            TransactionType.EVD_AIRTIME,
             TransactionType.GIG,
-            TransactionType.BALANCE
+            TransactionType.BALANCE,
+            TransactionType.CUSTOM_USSD
         )
 
         fun featuresForNetwork(network: NetworkType): List<TransactionType> {

@@ -25,6 +25,7 @@ import com.easymomo.app.ui.history.HistoryReportsViewModel
 import com.easymomo.app.ui.history.HistoryScreen
 import com.easymomo.app.ui.history.ReportsScreen
 import com.easymomo.app.ui.settings.SimAndDiagnosticsScreen
+import com.easymomo.app.ui.terminal.BusWithdrawalScreen
 import com.easymomo.app.ui.terminal.CustomUssdScreen
 import com.easymomo.app.ui.terminal.CustomerLedCashOutScreen
 import com.easymomo.app.ui.terminal.CustomersScreen
@@ -114,6 +115,7 @@ private object Routes {
     const val REPORTS = "reports"
     const val DATA_BUNDLES = "data_bundles/{network}"
     const val CUSTOM_USSD = "custom_ussd"
+    const val BUS_WITHDRAWAL = "bus_withdrawal"
     const val MERCHANT = "merchant"
     const val CUSTOMERS = "customers"
     const val HELP = "help"
@@ -195,6 +197,7 @@ private fun EasyMoMoNavGraph(
                 },
                 onOpenDataBundles = { net -> navController.navigate("data_bundles/${net.code}") },
                 onOpenCustomUssd = { navController.navigate(Routes.CUSTOM_USSD) },
+                onOpenBusWithdrawal = { navController.navigate(Routes.BUS_WITHDRAWAL) },
                 onNavigateToReview = { _, _ -> navController.navigate(Routes.REVIEW) },
                 onLogout = {
                     authViewModel.logout {
@@ -296,6 +299,16 @@ private fun EasyMoMoNavGraph(
         composable(Routes.CUSTOM_USSD) {
             CustomUssdHubScreen(
                 viewModel = customUssdViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.BUS_WITHDRAWAL) {
+            BusWithdrawalScreen(
+                terminalViewModel = terminalViewModel,
+                onOpenSimAndDiagnostics = {
+                    navController.navigate(Routes.simDiagnosticsRoute(expandBilling = false))
+                },
                 onBack = { navController.popBackStack() }
             )
         }

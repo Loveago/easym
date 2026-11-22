@@ -641,26 +641,32 @@ class CustomUssdViewModel(
         }
         val wasEditing = state.editingFlowId != null
         viewModelScope.launch {
-            repository.saveSimpleCustomUssd(
-                existingId = state.editingFlowId,
-                flowName = state.builderName,
-                operationType = state.builderOperationType,
-                steps = state.builderSteps,
-                oneTimeCode = state.builderOneTimeCode,
-                simSlotIndex = state.builderSimSlotIndex
-            )
-            _uiState.update {
-                it.copy(
-                    editingFlowId = null,
-                    builderName = "",
-                    builderOperationType = CustomUssdOperationType.STEP_BY_STEP,
-                    builderSteps = emptyList(),
-                    builderOneTimeCode = "",
-                    builderError = null,
-                    statusMessage = if (wasEditing) "Custom USSD updated!" else "Custom USSD saved!"
+            try {
+                repository.saveSimpleCustomUssd(
+                    existingId = state.editingFlowId,
+                    flowName = state.builderName,
+                    operationType = state.builderOperationType,
+                    steps = state.builderSteps,
+                    oneTimeCode = state.builderOneTimeCode,
+                    simSlotIndex = state.builderSimSlotIndex
                 )
+                _uiState.update {
+                    it.copy(
+                        editingFlowId = null,
+                        builderName = "",
+                        builderOperationType = CustomUssdOperationType.STEP_BY_STEP,
+                        builderSteps = emptyList(),
+                        builderOneTimeCode = "",
+                        builderError = null,
+                        statusMessage = if (wasEditing) "Custom USSD updated!" else "Custom USSD saved!"
+                    )
+                }
+                onSaved()
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(builderError = e.message ?: "Could not save Custom USSD.")
+                }
             }
-            onSaved()
         }
     }
 

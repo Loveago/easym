@@ -63,15 +63,15 @@ val EasyMoMoTypography = Typography(
 val TabularAmountStyle = TextStyle(
     fontFamily = FontFamily.SansSerif,
     fontWeight = FontWeight.Bold,
-    fontSize = 28.sp,
-    lineHeight = 34.sp,
+    fontSize = 30.sp,
+    lineHeight = 36.sp,
     fontFeatureSettings = "tnum"
 )
 
 val TabularPhoneStyle = TextStyle(
     fontFamily = FontFamily.SansSerif,
     fontWeight = FontWeight.SemiBold,
-    fontSize = 24.sp,
-    lineHeight = 30.sp,
+    fontSize = 26.sp,
+    lineHeight = 32.sp,
     fontFeatureSettings = "tnum"
 )

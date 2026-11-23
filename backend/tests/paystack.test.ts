@@ -97,8 +97,8 @@ describe('Paystack Subscriptions & Webhook Security', () => {
       $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           payment: {
-            findUnique: vi.fn().mockResolvedValue({ id: 'pay-2', status: PaymentStatus.PENDING }),
-            update: vi.fn().mockResolvedValue({
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            findUnique: vi.fn().mockResolvedValue({
               id: 'pay-2',
               reference: 'AM_OK_1',
               status: PaymentStatus.SUCCESS,

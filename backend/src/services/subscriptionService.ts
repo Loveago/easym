@@ -197,20 +197,13 @@ export async function verifyAndActivateSubscription(
   );
 
   const result = await db.$transaction(async (tx) => {
-    // Re-check inside transaction for concurrency safety
-    const lockedPayment = await tx.payment.findUnique({
-      where: { id: existingPayment.id },
-    });
-
-    if (lockedPayment?.status === PaymentStatus.SUCCESS) {
-      const ent = await tx.subscriptionEntitlement.findUnique({
-        where: { userId: existingPayment.userId },
-      });
-      return { alreadyProcessed: true, payment: lockedPayment, entitlement: ent };
-    }
-
-    const updatedPayment = await tx.payment.update({
-      where: { id: existingPayment.id },
+    // Atomically claim the payment inside the transaction so concurrent
+    // verify + webhook calls cannot both credit durationDays.
+    const claimResult = await tx.payment.updateMany({
+      where: {
+        id: existingPayment.id,
+        status: { not: PaymentStatus.SUCCESS },
+      },
       data: {
         status: PaymentStatus.SUCCESS,
         channel: verified.channel,
@@ -219,6 +212,21 @@ export async function verifyAndActivateSubscription(
         rawMetadata: verified.raw as Prisma.InputJsonValue,
       },
     });
+
+    const updatedPayment = await tx.payment.findUnique({
+      where: { id: existingPayment.id },
+    });
+
+    if (claimResult.count === 0) {
+      const ent = await tx.subscriptionEntitlement.findUnique({
+        where: { userId: existingPayment.userId },
+      });
+      return {
+        alreadyProcessed: true,
+        payment: updatedPayment ?? existingPayment,
+        entitlement: ent,
+      };
+    }
 
     const currentEntitlement = await tx.subscriptionEntitlement.findUnique({
       where: { userId: existingPayment.userId },
@@ -253,7 +261,7 @@ export async function verifyAndActivateSubscription(
 
     return {
       alreadyProcessed: false,
-      payment: updatedPayment,
+      payment: updatedPayment ?? existingPayment,
       entitlement: updatedEntitlement,
     };
   });

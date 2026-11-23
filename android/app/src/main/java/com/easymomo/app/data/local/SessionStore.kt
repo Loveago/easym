@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.easymomo.app.BuildConfig
 import com.easymomo.app.domain.model.AgentUser
 import com.easymomo.app.domain.model.SubscriptionInfo
 import com.easymomo.app.domain.model.SubscriptionStatus
@@ -202,9 +203,37 @@ class SessionStore(private val context: Context) {
         return info
     }
 
+    var googleAuthEnabled: Boolean
+        get() = prefs.getBoolean(
+            KEY_GOOGLE_AUTH_ENABLED,
+            BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
+        )
+        private set(value) {
+            prefs.edit().putBoolean(KEY_GOOGLE_AUTH_ENABLED, value).apply()
+        }
+
+    var googleClientId: String
+        get() = prefs.getString(KEY_GOOGLE_CLIENT_ID, null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.GOOGLE_WEB_CLIENT_ID.trim()
+        private set(value) {
+            prefs.edit().putString(KEY_GOOGLE_CLIENT_ID, value.trim()).apply()
+        }
+
+    fun saveGoogleAuthConfig(enabled: Boolean, clientId: String) {
+        val trimmedClientId = clientId.trim()
+        prefs.edit()
+            .putBoolean(KEY_GOOGLE_AUTH_ENABLED, enabled && trimmedClientId.isNotBlank())
+            .putString(KEY_GOOGLE_CLIENT_ID, trimmedClientId)
+            .apply()
+    }
+
     fun clearSession() {
         val onboarding = onboardingCompleted
         val preservedDeviceId = deviceId
+        val preservedGoogleEnabled = googleAuthEnabled
+        val preservedGoogleClientId = googleClientId
         cachedToken = null
         tokenLoaded = true
         cachedUser = null
@@ -218,6 +247,8 @@ class SessionStore(private val context: Context) {
             .clear()
             .putBoolean(KEY_ONBOARDING_DONE, onboarding)
             .putString(KEY_DEVICE_ID, preservedDeviceId)
+            .putBoolean(KEY_GOOGLE_AUTH_ENABLED, preservedGoogleEnabled)
+            .putString(KEY_GOOGLE_CLIENT_ID, preservedGoogleClientId)
             .apply()
     }
 
@@ -225,6 +256,8 @@ class SessionStore(private val context: Context) {
         private const val KEY_TOKEN = "auth_token"
         private const val KEY_ONBOARDING_DONE = "onboarding_done"
         private const val KEY_DEVICE_ID = "stable_device_id"
+        private const val KEY_GOOGLE_AUTH_ENABLED = "google_auth_enabled"
+        private const val KEY_GOOGLE_CLIENT_ID = "google_client_id"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_USER_EMAIL = "user_email"

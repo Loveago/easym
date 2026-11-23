@@ -178,7 +178,12 @@ object PresetUssdFlows {
                 amountStep("ENTER_AMOUNT", "ENTER_OPERATIONAL_ID"),
                 operationalIdStep("ENTER_OPERATIONAL_ID", "AUTHORIZE_PIN"),
                 optionalPinStep(),
-                terminalResultStep()
+                terminalResultStep(
+                    successPrompts = listOf(
+                        "balance", "ghs", "ghc", "available", "float",
+                        "current", "evd", "success", "completed", "confirmed"
+                    )
+                )
             )
         )
     )
@@ -352,7 +357,12 @@ object PresetUssdFlows {
                 menuStep("STEP_3", "3", listOf("evd", "cash in", "balance", "select"), "STEP_1"),
                 menuStep("STEP_1", "1", listOf("balance", "check", "select"), "AUTHORIZE_PIN"),
                 optionalPinStep(),
-                terminalResultStep()
+                terminalResultStep(
+                    successPrompts = listOf(
+                        "balance", "ghs", "ghc", "available", "float",
+                        "current", "evd", "success", "completed", "confirmed"
+                    )
+                )
             )
         )
     )
@@ -381,7 +391,12 @@ object PresetUssdFlows {
                 UssdFlowStep("START", StepType.INITIATE_USSD, nextStepId = "STEP_6"),
                 menuStep("STEP_6", "6", listOf("commission", "evd", "select"), "AUTHORIZE_PIN"),
                 optionalPinStep(),
-                terminalResultStep()
+                terminalResultStep(
+                    successPrompts = listOf(
+                        "balance", "ghs", "ghc", "available", "float",
+                        "current", "evd", "success", "completed", "confirmed"
+                    )
+                )
             )
         )
     )
@@ -412,7 +427,12 @@ object PresetUssdFlows {
                 menuStep("STEP_4", "4", listOf("statement", "mini", "select"), "STEP_1"),
                 menuStep("STEP_1", "1", listOf("statement", "mini", "select"), "AUTHORIZE_PIN"),
                 optionalPinStep(),
-                terminalResultStep()
+                terminalResultStep(
+                    successPrompts = listOf(
+                        "balance", "ghs", "ghc", "available", "float",
+                        "current", "evd", "success", "completed", "confirmed"
+                    )
+                )
             )
         )
     )
@@ -447,7 +467,12 @@ object PresetUssdFlows {
                 amountStep("ENTER_AMOUNT", "ENTER_OPERATIONAL_ID"),
                 operationalIdStep("ENTER_OPERATIONAL_ID", "AUTHORIZE_PIN"),
                 optionalPinStep(),
-                terminalResultStep()
+                terminalResultStep(
+                    successPrompts = listOf(
+                        "balance", "ghs", "ghc", "available", "float",
+                        "current", "evd", "success", "completed", "confirmed"
+                    )
+                )
             )
         )
     )
@@ -482,7 +507,12 @@ object PresetUssdFlows {
                 amountStep("ENTER_AMOUNT", "ENTER_OPERATIONAL_ID"),
                 operationalIdStep("ENTER_OPERATIONAL_ID", "AUTHORIZE_PIN"),
                 optionalPinStep(),
-                terminalResultStep()
+                terminalResultStep(
+                    successPrompts = listOf(
+                        "balance", "ghs", "ghc", "available", "float",
+                        "current", "evd", "success", "completed", "confirmed"
+                    )
+                )
             )
         )
     )

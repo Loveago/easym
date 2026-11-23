@@ -94,7 +94,8 @@ data class TerminalUiState(
     val diagnosticLogs: List<DiagnosticLogEntry> = emptyList(),
     val testModeLastAction: String? = null,
     val isSavingSimSettings: Boolean = false,
-    val simSettingsSavedMessage: String? = null
+    val simSettingsSavedMessage: String? = null,
+    val repeatCount: Int = 1
 )
 
 class TerminalViewModel(
@@ -121,6 +122,8 @@ class TerminalViewModel(
 
     val ussdState: StateFlow<UssdSessionState> = flowController.sessionState
     val subscription = authRepo.subscription
+    val trialNotice = authRepo.trialNotice
+    fun clearTrialNotice() = authRepo.clearTrialNotice()
     val recentTransactions = txRepo.observeRecentTransactions(5)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -147,12 +150,31 @@ class TerminalViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReportSummary())
     }
 
+    private sealed interface RepeatTarget {
+        data class Standard(
+            val type: TransactionType,
+            val overrideNetwork: NetworkType?
+        ) : RepeatTarget
+
+        data class Preset(
+            val preset: PresetUssdFlow,
+            val overrideAmount: String?,
+            val overrideCodeOrTill: String?,
+            val overrideSimId: Int?
+        ) : RepeatTarget
+
+        data class Custom(
+            val flow: SimpleCustomUssdFlow
+        ) : RepeatTarget
+    }
+
     private val repeatCoordinator = CustomUssdRepeatCoordinator()
     val customUssdRepeatState: StateFlow<CustomUssdRepeatState?> = repeatCoordinator.state
 
     private var timeoutJob: Job? = null
     private var autocompleteJob: Job? = null
     private var repeatCountdownJob: Job? = null
+    private var activeRepeatTarget: RepeatTarget? = null
     private var lastCustomRunPhone: String = ""
     private var lastCustomRunAmountValue: Double = 0.0
     private var lastCustomRunFormattedAmount: String = ""
@@ -678,6 +700,11 @@ class TerminalViewModel(
         _uiState.update { it.copy(selectedSimId = subscriptionId) }
     }
 
+    fun onRepeatCountChange(count: Int) {
+        val clamped = CustomUssdRepeatCoordinator.clampRepeatCount(count)
+        _uiState.update { it.copy(repeatCount = clamped) }
+    }
+
     fun clearForm() {
         _uiState.update {
             it.copy(
@@ -690,7 +717,8 @@ class TerminalViewModel(
                 phoneSuggestions = emptyList(),
                 selectedBundle = null,
                 merchantCode = "",
-                customUssdCode = ""
+                customUssdCode = "",
+                repeatCount = 1
             )
         }
     }
@@ -730,8 +758,10 @@ class TerminalViewModel(
     fun prepareAndRunInlineUssd(
         type: TransactionType,
         overrideNetwork: NetworkType? = null,
+        isRepeatContinuation: Boolean = false,
         onCustomerLedRequired: (localId: String) -> Unit
     ) {
+        val effectiveRepeat = if (isRepeatContinuation) 1 else _uiState.value.repeatCount
         prepareTransaction(
             type = type,
             overrideNetwork = overrideNetwork,
@@ -739,6 +769,25 @@ class TerminalViewModel(
                 if (isCustomerLed) {
                     onCustomerLedRequired(localId)
                 } else {
+                    if (!isRepeatContinuation) {
+                        if (effectiveRepeat > 1) {
+                            repeatCountdownJob?.cancel()
+                            val descriptor = SimpleCustomUssdFlow(
+                                id = "std_${type.code}",
+                                name = type.displayName,
+                                operationType = CustomUssdOperationType.STEP_BY_STEP,
+                                steps = emptyList(),
+                                oneTimeCode = "",
+                                simSlotIndex = 0,
+                                formulaPreview = type.displayName
+                            )
+                            activeRepeatTarget = RepeatTarget.Standard(type, overrideNetwork)
+                            repeatCoordinator.startBatch(descriptor, effectiveRepeat)
+                        } else {
+                            activeRepeatTarget = null
+                            repeatCoordinator.clear()
+                        }
+                    }
                     _uiState.update { it.copy(inlineUssdVisible = true) }
                     executeAgentUssd(localId)
                 }
@@ -1064,7 +1113,9 @@ class TerminalViewModel(
         lastCustomRunAmountValue = amountValue
         lastCustomRunFormattedAmount = formattedAmount
         repeatCountdownJob?.cancel()
-        repeatCoordinator.startBatch(flow, CustomUssdRepeatCoordinator.clampRepeatCount(repeatCount))
+        val effectiveRepeat = CustomUssdRepeatCoordinator.clampRepeatCount(repeatCount)
+        activeRepeatTarget = RepeatTarget.Custom(flow)
+        repeatCoordinator.startBatch(flow, effectiveRepeat)
 
         viewModelScope.launch {
             launchSingleCustomUssdRun(
@@ -1080,7 +1131,9 @@ class TerminalViewModel(
         preset: PresetUssdFlow,
         overrideAmount: String? = null,
         overrideCodeOrTill: String? = null,
-        overrideSimId: Int? = null
+        overrideSimId: Int? = null,
+        repeatCount: Int = _uiState.value.repeatCount,
+        isRepeatContinuation: Boolean = false
     ): String? {
         if (!requireActiveAccessOrShowGate()) return null
         val state = _uiState.value
@@ -1134,6 +1187,32 @@ class TerminalViewModel(
         }
 
         _uiState.update { it.copy(validationError = null) }
+
+        if (!isRepeatContinuation) {
+            val effectiveRepeat = CustomUssdRepeatCoordinator.clampRepeatCount(repeatCount)
+            if (effectiveRepeat > 1) {
+                repeatCountdownJob?.cancel()
+                val descriptor = SimpleCustomUssdFlow(
+                    id = preset.id,
+                    name = preset.title,
+                    operationType = CustomUssdOperationType.STEP_BY_STEP,
+                    steps = emptyList(),
+                    oneTimeCode = "",
+                    simSlotIndex = 0,
+                    formulaPreview = preset.subtitle
+                )
+                activeRepeatTarget = RepeatTarget.Preset(
+                    preset = preset,
+                    overrideAmount = overrideAmount,
+                    overrideCodeOrTill = overrideCodeOrTill,
+                    overrideSimId = overrideSimId
+                )
+                repeatCoordinator.startBatch(descriptor, effectiveRepeat)
+            } else {
+                activeRepeatTarget = null
+                repeatCoordinator.clear()
+            }
+        }
 
         viewModelScope.launch {
             val activeSims = withContext(Dispatchers.IO) { simManager.getActiveSims() }
@@ -1481,6 +1560,7 @@ class TerminalViewModel(
     fun stopCustomUssdRepeatBatch() {
         repeatCountdownJob?.cancel()
         repeatCountdownJob = null
+        activeRepeatTarget = null
         repeatCoordinator.clear()
         lastCustomRunPhone = ""
         lastCustomRunAmountValue = 0.0
@@ -1491,13 +1571,37 @@ class TerminalViewModel(
         val next = repeatCoordinator.advanceToNextRun() ?: return
         timeoutJob?.cancel()
         flowController.resetSession()
-        viewModelScope.launch {
-            launchSingleCustomUssdRun(
-                flow = next.flow,
-                normalizedPhone = lastCustomRunPhone,
-                amountValue = lastCustomRunAmountValue,
-                formattedAmount = lastCustomRunFormattedAmount
-            )
+        when (val target = activeRepeatTarget) {
+            is RepeatTarget.Standard -> {
+                _uiState.update { it.copy(inlineUssdVisible = false) }
+                prepareAndRunInlineUssd(
+                    type = target.type,
+                    overrideNetwork = target.overrideNetwork,
+                    isRepeatContinuation = true,
+                    onCustomerLedRequired = {}
+                )
+            }
+            is RepeatTarget.Preset -> {
+                _uiState.update { it.copy(inlineUssdVisible = false) }
+                runPresetUssdFlow(
+                    preset = target.preset,
+                    overrideAmount = target.overrideAmount,
+                    overrideCodeOrTill = target.overrideCodeOrTill,
+                    overrideSimId = target.overrideSimId,
+                    repeatCount = 1,
+                    isRepeatContinuation = true
+                )
+            }
+            is RepeatTarget.Custom, null -> {
+                viewModelScope.launch {
+                    launchSingleCustomUssdRun(
+                        flow = next.flow,
+                        normalizedPhone = lastCustomRunPhone,
+                        amountValue = lastCustomRunAmountValue,
+                        formattedAmount = lastCustomRunFormattedAmount
+                    )
+                }
+            }
         }
     }
 

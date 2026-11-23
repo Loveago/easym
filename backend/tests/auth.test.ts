@@ -16,9 +16,12 @@ import {
   unregisterDevice,
   verifyAndRegisterDevice,
 } from '../src/services/deviceLimitService';
+import { clearTrialDeviceTestState } from '../src/services/trialDeviceService';
 
 describe('Authentication & Entitlement Middleware', () => {
   it('registers a new agent and activates 15-day TRIAL atomically', async () => {
+    clearTrialDeviceTestState();
+    clearDeviceLimitTestState();
     const createdUser = {
       id: 'user-123',
       fullName: 'Kwame Mensah',
@@ -60,6 +63,7 @@ describe('Authentication & Entitlement Middleware', () => {
         email: 'Kwame@Example.com',
         phone: '0241234567',
         password: 'StrongPassword123!',
+        deviceId: 'dev-register-1',
       },
       mockDb,
     );
@@ -89,6 +93,7 @@ describe('Authentication & Entitlement Middleware', () => {
           email: 'kwame@example.com',
           phone: '0241234567',
           password: 'Password123!',
+          deviceId: 'dev-dup-1',
         },
         mockDb,
       ),
@@ -252,9 +257,15 @@ describe('Authentication & Entitlement Middleware', () => {
 
   it('registers new agent via Google Sign-Up with 15-day trial and rejects when unconfigured', async () => {
     clearDeviceLimitTestState();
+    clearTrialDeviceTestState();
 
     await expect(
-      loginOrRegisterWithGoogle({ idToken: 'fake-token-1234567890123456' }, undefined, undefined, ''),
+      loginOrRegisterWithGoogle(
+        { idToken: 'fake-token-1234567890123456', deviceId: 'dev-g0' },
+        undefined,
+        undefined,
+        '',
+      ),
     ).rejects.toMatchObject({ statusCode: 503, code: 'GOOGLE_AUTH_NOT_CONFIGURED' });
 
     const createdUser = {
@@ -309,5 +320,94 @@ describe('Authentication & Entitlement Middleware', () => {
     expect(res.user.email).toBe('kofi@gmail.com');
     expect(res.entitlement.status).toBe(EntitlementStatus.TRIAL);
     expect(res.entitlement.remainingDays).toBe(15);
+  });
+
+  it('enforces 1 free trial per deviceId and requires deviceId on register and google signup', async () => {
+    clearDeviceLimitTestState();
+    clearTrialDeviceTestState();
+    const app = createApp();
+
+    const missingRegRes = await request(app).post('/api/auth/register').send({
+      fullName: 'Test Agent',
+      email: 'test-no-dev@example.com',
+      phone: '0244000001',
+      password: 'Password123!',
+    });
+    expect(missingRegRes.status).toBe(400);
+    expect(missingRegRes.body.error.code).toBe('DEVICE_ID_REQUIRED');
+
+    const missingGoogleRes = await request(app).post('/api/auth/google').send({
+      idToken: 'valid-token-1234567890123456',
+    });
+    expect(missingGoogleRes.status).toBe(400);
+    expect(missingGoogleRes.body.error.code).toBe('DEVICE_ID_REQUIRED');
+
+    const makeMockDb = (id: string, email: string, phone: string) =>
+      ({
+        user: { findFirst: vi.fn().mockResolvedValue(null) },
+        $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: {
+              create: vi.fn().mockResolvedValue({
+                id,
+                fullName: 'Agent',
+                email,
+                phone,
+                passwordHash: 'hashed',
+                role: UserRole.AGENT,
+                accountStatus: AccountStatus.ACTIVE,
+                trialConsumed: true,
+                createdAt: new Date(),
+              }),
+            },
+            subscriptionEntitlement: {
+              create: vi.fn().mockImplementation(({ data }) =>
+                Promise.resolve({
+                  id: `ent-${id}`,
+                  ...data,
+                  paidUntil: null,
+                  currentPlanId: null,
+                  recurringAuthorized: false,
+                }),
+              ),
+            },
+          };
+          return cb(tx);
+        }),
+      }) as unknown as PrismaClient;
+
+    // 1st signup on device gets 15-day TRIAL
+    const first = await registerAgent(
+      {
+        fullName: 'First Agent',
+        email: 'first@example.com',
+        phone: '0244111111',
+        password: 'Password123!',
+        deviceId: 'android-id-shared-1',
+      },
+      makeMockDb('u-1', 'first@example.com', '0244111111'),
+    );
+    expect(first.entitlement.status).toBe(EntitlementStatus.TRIAL);
+    expect(first.entitlement.hasAccess).toBe(true);
+    expect(first.trialNotice).toBeUndefined();
+
+    // 2nd signup (Google) on same device gets EXPIRED and notice
+    const fakeVerifier = vi.fn().mockResolvedValue({
+      email: 'second@gmail.com',
+      fullName: 'Second Agent',
+      sub: 'sub-2',
+    });
+    const second = await loginOrRegisterWithGoogle(
+      {
+        idToken: 'valid-token-1234567890123456',
+        deviceId: 'android-id-shared-1',
+      },
+      makeMockDb('u-2', 'second@gmail.com', 'g-222'),
+      fakeVerifier,
+      '12345.apps.googleusercontent.com',
+    );
+    expect(second.entitlement.status).toBe(EntitlementStatus.EXPIRED);
+    expect(second.entitlement.hasAccess).toBe(false);
+    expect(second.trialNotice).toBe('Free trial already used on this device. Subscribe to continue.');
   });
 });

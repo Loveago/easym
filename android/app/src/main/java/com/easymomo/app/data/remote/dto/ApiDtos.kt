@@ -33,7 +33,8 @@ data class GoogleAuthRequest(
 data class AuthResponse(
     val token: String,
     val user: UserDto,
-    val entitlement: SubscriptionStatusDto?
+    val entitlement: SubscriptionStatusDto?,
+    val trialNotice: String? = null
 )
 
 data class UserDto(

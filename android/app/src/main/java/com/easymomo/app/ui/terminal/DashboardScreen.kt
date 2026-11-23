@@ -1,7 +1,9 @@
 package com.easymomo.app.ui.terminal
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -32,6 +34,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -116,6 +119,7 @@ import com.easymomo.app.domain.model.TransactionType
 import com.easymomo.app.ui.customussd.CustomUssdViewModel
 import com.easymomo.app.ussd.ActiveSimInfo
 import com.easymomo.app.ussd.CustomUssdRepeatCoordinator
+import com.easymomo.app.ussd.PermissionCapabilityManager
 import com.easymomo.app.ussd.SimSlotInfo
 import com.easymomo.app.ussd.capture.CustomUssdOperationType
 import com.easymomo.app.ussd.capture.SimpleCustomUssdFlow
@@ -176,10 +180,21 @@ fun DashboardScreen(
     val context = LocalContext.current
     val uiState by terminalViewModel.uiState.collectAsStateWithLifecycle()
     val customUssdState by customUssdViewModel.uiState.collectAsStateWithLifecycle()
+    val trialNotice by terminalViewModel.trialNotice.collectAsStateWithLifecycle()
     var pendingNetworkSelectionType by remember { mutableStateOf<TransactionType?>(null) }
     var pendingPermissionAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingAccessibilityAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var showCustomUssdPopup by remember { mutableStateOf(false) }
+    val permissionHelper = remember(context) { PermissionCapabilityManager(context) }
+    val uiPromptPrefs = remember(context) {
+        context.getSharedPreferences("easymomo_ui_prompts", Context.MODE_PRIVATE)
+    }
+    var showSmsCapturePrompt by remember {
+        mutableStateOf(
+            !permissionHelper.isNotificationListenerEnabled() &&
+                !uiPromptPrefs.getBoolean("dismissed_sms_capture_prompt", false)
+        )
+    }
     val amountFmt = remember { DecimalFormat("0.00", DecimalFormatSymbols(Locale.US)) }
 
     val runIfEntitled = remember(terminalViewModel) {
@@ -197,6 +212,9 @@ fun DashboardScreen(
                 terminalViewModel.refreshDeviceStatus()
                 terminalViewModel.refreshSubscriptionStatus()
                 terminalViewModel.triggerAutoCustomerSyncIfNeeded()
+                if (permissionHelper.isNotificationListenerEnabled()) {
+                    showSmsCapturePrompt = false
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -251,12 +269,27 @@ fun DashboardScreen(
         }
     }
 
+    val onJoinWhatsApp = remember(context) {
+        {
+            runCatching {
+                context.startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://chat.whatsapp.com/GaPJviYYIPF976M7spXybb?s=cl&p=a&iam=2")
+                    )
+                )
+            }
+            Unit
+        }
+    }
+
     Scaffold(
         containerColor = TerminalBackground,
         topBar = {
             DashboardTopBar(
                 darkModeEnabled = uiState.agentSettings.darkModeEnabled,
                 onToggleDarkMode = terminalViewModel::setDarkModeEnabled,
+                onJoinWhatsApp = onJoinWhatsApp,
                 onOpenHelp = onOpenHelp,
                 onOpenHistory = { runIfEntitled(onOpenHistory) },
                 onOpenCustomers = { runIfEntitled(onOpenCustomers) },
@@ -302,12 +335,14 @@ fun DashboardScreen(
                         detectedNetwork = uiState.detectedNetwork,
                         isPorted = uiState.isPorted,
                         manualNetwork = uiState.manualNetwork,
+                        repeatCount = uiState.repeatCount,
                         onAmountChange = terminalViewModel::onAmountChange,
                         onPhoneChange = terminalViewModel::onPhoneChange,
                         onDismissPhoneSuggestions = terminalViewModel::dismissPhoneSuggestions,
                         onPhoneSuggestionSelected = terminalViewModel::onPhoneSuggestionSelected,
                         onOpenCustomers = { runIfEntitled(onOpenCustomers) },
                         onPortedChange = terminalViewModel::onPortedChange,
+                        onRepeatCountChange = terminalViewModel::onRepeatCountChange,
                         onClearForm = terminalViewModel::clearForm,
                         onManualNetworkSelect = terminalViewModel::onManualNetworkSelect
                     )
@@ -527,13 +562,15 @@ fun DashboardScreen(
         CustomUssdPickerDialog(
             flows = customUssdState.simpleFlows,
             activeSims = uiState.activeSims,
+            initialRepeatCount = uiState.repeatCount,
             onDismiss = { showCustomUssdPopup = false },
-            onRunPresetFlow = { preset, chosenSimId ->
+            onRunPresetFlow = { preset, chosenSimId, repeatCount ->
                 showCustomUssdPopup = false
                 runWithCallPermission {
                     terminalViewModel.runPresetUssdFlow(
                         preset = preset,
-                        overrideSimId = chosenSimId
+                        overrideSimId = chosenSimId,
+                        repeatCount = repeatCount
                     )
                 }
             },
@@ -581,6 +618,89 @@ fun DashboardScreen(
             }
         )
     }
+
+    if (showSmsCapturePrompt) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                uiPromptPrefs.edit().putBoolean("dismissed_sms_capture_prompt", true).apply()
+                showSmsCapturePrompt = false
+            },
+            title = {
+                Text(
+                    text = "Enable Live MoMo SMS Capture?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Turn on Notification Access so EasyMoMo can automatically confirm pending transactions and record incoming MTN MoMo, Telecel Cash, and AT Money SMS alerts.\n\n" +
+                        "• Does not require READ_SMS.\n" +
+                        "• Only transactional MoMo notifications are parsed locally; personal chats & OTPs are ignored.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        uiPromptPrefs.edit().putBoolean("dismissed_sms_capture_prompt", true).apply()
+                        showSmsCapturePrompt = false
+                        context.startActivity(permissionHelper.createNotificationListenerSettingsIntent())
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                ) {
+                    Text("Enable in Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        uiPromptPrefs.edit().putBoolean("dismissed_sms_capture_prompt", true).apply()
+                        showSmsCapturePrompt = false
+                    }
+                ) {
+                    Text("Not Now")
+                }
+            }
+        )
+    }
+
+    trialNotice?.let { notice ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = terminalViewModel::clearTrialNotice,
+            title = {
+                Text(
+                    text = "Free Trial Already Used",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        terminalViewModel.clearTrialNotice()
+                        onOpenUserProfileInSettings()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                ) {
+                    Text("Subscribe Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = terminalViewModel::clearTrialNotice) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 }
 
 
@@ -588,6 +708,7 @@ fun DashboardScreen(
 private fun DashboardTopBar(
     darkModeEnabled: Boolean,
     onToggleDarkMode: (Boolean) -> Unit,
+    onJoinWhatsApp: () -> Unit,
     onOpenHelp: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenCustomers: () -> Unit,
@@ -633,6 +754,25 @@ private fun DashboardTopBar(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onJoinWhatsApp,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(9.dp),
+                        color = Color(0xFF25D366),
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_whatsapp),
+                                contentDescription = "Join WhatsApp Group",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+                }
                 IconButton(
                     onClick = { onToggleDarkMode(!darkModeEnabled) },
                     modifier = Modifier.size(38.dp)
@@ -969,15 +1109,18 @@ private fun AmountPhoneInputCard(
     detectedNetwork: NetworkType,
     isPorted: Boolean,
     manualNetwork: NetworkType?,
+    repeatCount: Int,
     onAmountChange: (String) -> Unit,
     onPhoneChange: (String) -> Unit,
     onDismissPhoneSuggestions: () -> Unit,
     onPhoneSuggestionSelected: (CustomerNumberEntity) -> Unit,
     onOpenCustomers: () -> Unit,
     onPortedChange: (Boolean) -> Unit,
+    onRepeatCountChange: (Int) -> Unit,
     onClearForm: () -> Unit,
     onManualNetworkSelect: (NetworkType) -> Unit
 ) {
+    var showRepeatPicker by remember { mutableStateOf(false) }
     val textPrimary = TextPrimary
     val amountTextStyle = remember(textPrimary) {
         TabularAmountStyle.copy(color = textPrimary, textAlign = TextAlign.Center)
@@ -1174,7 +1317,7 @@ private fun AmountPhoneInputCard(
         HorizontalDivider(color = TerminalBorder)
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Ported number checkbox + Clear Form Fields
+        // Ported number checkbox + subtle Repeat pill + Clear
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1190,18 +1333,36 @@ private fun AmountPhoneInputCard(
                     colors = CheckboxDefaults.colors(checkedColor = EmeraldPrimary)
                 )
                 Text(
-                    text = "Number is ported",
+                    text = "Ported",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextPrimary
                 )
             }
-            TextButton(onClick = onClearForm) {
-                Text(
-                    text = "Clear Form Fields",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = StatusError
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                SubtleRepeatPill(
+                    repeatCount = repeatCount,
+                    expanded = showRepeatPicker,
+                    onClick = { showRepeatPicker = !showRepeatPicker }
                 )
+                TextButton(onClick = onClearForm) {
+                    Text(
+                        text = "Clear",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = StatusError
+                    )
+                }
             }
+        }
+
+        if (showRepeatPicker) {
+            Spacer(modifier = Modifier.height(6.dp))
+            CompactRepeatSelectorStrip(
+                repeatCount = repeatCount,
+                onRepeatCountChange = onRepeatCountChange
+            )
         }
 
         // Manual network selector when ported
@@ -1901,18 +2062,137 @@ private fun AccessibilityPromptDialog(
 }
 
 @Composable
+private fun SubtleRepeatPill(
+    repeatCount: Int,
+    expanded: Boolean,
+    onClick: () -> Unit
+) {
+    val isActive = repeatCount > 1
+    Surface(
+        modifier = Modifier
+            .clip(RoundedShape8)
+            .clickable(onClick = onClick),
+        shape = RoundedShape8,
+        color = if (isActive || expanded) EmeraldPrimaryContainer else TerminalSurfaceVariant,
+        border = BorderStroke(1.dp, if (isActive || expanded) EmeraldPrimary else TerminalBorder)
+    ) {
+        Text(
+            text = if (isActive) "Repeat ${repeatCount}x" else "1x",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            color = if (isActive || expanded) OnEmeraldPrimaryContainer else TextSecondary,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        )
+    }
+}
+
+@Composable
+private fun CompactRepeatSelectorStrip(
+    repeatCount: Int,
+    onRepeatCountChange: (Int) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedShape8,
+        color = TerminalBackground,
+        border = BorderStroke(1.dp, TerminalBorder)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Runs:",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                fontWeight = FontWeight.Medium
+            )
+            listOf(1, 2, 3, 5).forEach { count ->
+                val selected = repeatCount == count
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedShape6)
+                        .clickable { onRepeatCountChange(count) },
+                    shape = RoundedShape6,
+                    color = if (selected) EmeraldPrimaryContainer else TerminalSurface,
+                    border = BorderStroke(1.dp, if (selected) EmeraldPrimary else TerminalBorder)
+                ) {
+                    Text(
+                        text = "${count}x",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selected) OnEmeraldPrimaryContainer else TextSecondary,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            val canDec = repeatCount > CustomUssdRepeatCoordinator.MIN_REPEAT_COUNT
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedShape6)
+                    .clickable(enabled = canDec) {
+                        onRepeatCountChange(repeatCount - 1)
+                    },
+                shape = RoundedShape6,
+                color = TerminalSurface,
+                border = BorderStroke(1.dp, TerminalBorder)
+            ) {
+                Text(
+                    text = "−",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (canDec) TextPrimary else TextMuted,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+            }
+            Text(
+                text = "${repeatCount}x",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = EmeraldPrimary,
+                modifier = Modifier.padding(horizontal = 2.dp)
+            )
+            val canInc = repeatCount < CustomUssdRepeatCoordinator.MAX_REPEAT_COUNT
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedShape6)
+                    .clickable(enabled = canInc) {
+                        onRepeatCountChange(repeatCount + 1)
+                    },
+                shape = RoundedShape6,
+                color = TerminalSurface,
+                border = BorderStroke(1.dp, TerminalBorder)
+            ) {
+                Text(
+                    text = "+",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (canInc) TextPrimary else TextMuted,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CustomUssdPickerDialog(
     flows: List<SimpleCustomUssdFlow>,
     activeSims: List<ActiveSimInfo>,
+    initialRepeatCount: Int,
     onDismiss: () -> Unit,
-    onRunPresetFlow: (PresetUssdFlow, Int?) -> Unit,
+    onRunPresetFlow: (PresetUssdFlow, Int?, Int) -> Unit,
     onOpenBusWithdrawal: () -> Unit,
     onRunFlow: (SimpleCustomUssdFlow, Int) -> Unit,
     onEditFlow: (SimpleCustomUssdFlow) -> Unit,
     onCreateNew: () -> Unit
 ) {
-    var repeatCountText by remember { mutableStateOf("1") }
-    val repeatCount = CustomUssdRepeatCoordinator.clampRepeatCount(repeatCountText.toIntOrNull() ?: 1)
+    var repeatCount by remember { mutableStateOf(CustomUssdRepeatCoordinator.clampRepeatCount(initialRepeatCount)) }
+    var showRepeatStrip by remember { mutableStateOf(initialRepeatCount > 1) }
     var chosenSimId by remember { mutableStateOf<Int?>(null) }
     var activeGroupTitle by remember { mutableStateOf<String?>(null) }
     var activeGroupFlows by remember { mutableStateOf<List<PresetUssdFlow>>(emptyList()) }
@@ -1964,15 +2244,32 @@ private fun CustomUssdPickerDialog(
                     }
                 }
 
-                // SIM selector for Quick Flows
-                if (activeSims.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // SIM selector + subtle Repeat pill for Quick Flows & Custom USSD
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
-                            text = "Run with SIM:",
+                            text = if (activeSims.isNotEmpty()) "Run with SIM:" else "Options:",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondary
                         )
+                        SubtleRepeatPill(
+                            repeatCount = repeatCount,
+                            expanded = showRepeatStrip,
+                            onClick = { showRepeatStrip = !showRepeatStrip }
+                        )
+                    }
+                    if (showRepeatStrip) {
+                        CompactRepeatSelectorStrip(
+                            repeatCount = repeatCount,
+                            onRepeatCountChange = { repeatCount = CustomUssdRepeatCoordinator.clampRepeatCount(it) }
+                        )
+                    }
+                    if (activeSims.isNotEmpty()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2016,13 +2313,13 @@ private fun CustomUssdPickerDialog(
                             activeGroupFlows = PresetUssdFlows.ONE4ALL_FLOWS
                         },
                         Triple("EVD BALANCE", Icons.Outlined.AccountBalanceWallet, EmeraldPrimary) to {
-                            onRunPresetFlow(PresetUssdFlows.EVD_BALANCE, chosenSimId)
+                            onRunPresetFlow(PresetUssdFlows.EVD_BALANCE, chosenSimId, repeatCount)
                         },
                         Triple("EVD COMMISSION", Icons.Outlined.Payments, AmberAccent) to {
-                            onRunPresetFlow(PresetUssdFlows.EVD_COMMISSION, chosenSimId)
+                            onRunPresetFlow(PresetUssdFlows.EVD_COMMISSION, chosenSimId, repeatCount)
                         },
                         Triple("MOMO STATEMENT", Icons.AutoMirrored.Outlined.ReceiptLong, EmeraldPrimary) to {
-                            onRunPresetFlow(PresetUssdFlows.MOMO_STATEMENT, chosenSimId)
+                            onRunPresetFlow(PresetUssdFlows.MOMO_STATEMENT, chosenSimId, repeatCount)
                         },
                         Triple("BUS WITHDRAW", Icons.Outlined.AccountBalanceWallet, EmeraldPrimary) to {
                             onOpenBusWithdrawal()
@@ -2073,39 +2370,12 @@ private fun CustomUssdPickerDialog(
 
                 if (flows.isNotEmpty()) {
                     HorizontalDivider(color = TerminalBorder)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Saved Custom USSDs (${flows.size})",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(1, 2, 3, 5).forEach { count ->
-                                val selected = repeatCount == count
-                                Surface(
-                                    modifier = Modifier
-                                        .clip(RoundedShape6)
-                                        .clickable { repeatCountText = count.toString() },
-                                    shape = RoundedShape6,
-                                    color = if (selected) EmeraldPrimaryContainer else TerminalBackground,
-                                    border = BorderStroke(1.dp, if (selected) EmeraldPrimary else TerminalBorder)
-                                ) {
-                                    Text(
-                                        text = "${count}x",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (selected) OnEmeraldPrimaryContainer else TextSecondary,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    Text(
+                        text = "Saved Custom USSDs (${flows.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -2190,7 +2460,7 @@ private fun CustomUssdPickerDialog(
                                 .clip(RoundedShape8)
                                 .clickable {
                                     activeGroupTitle = null
-                                    onRunPresetFlow(preset, chosenSimId)
+                                    onRunPresetFlow(preset, chosenSimId, repeatCount)
                                 },
                             shape = RoundedShape8,
                             color = TerminalBackground,

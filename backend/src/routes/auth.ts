@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { AppError } from '../middleware/errorHandler';
 import { requireAuth } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
@@ -52,10 +53,17 @@ router.post('/google', validate(googleAuthSchema), async (req, res, next) => {
   try {
     const headerDeviceId = req.headers['x-device-id'];
     const headerDeviceName = req.headers['x-device-name'];
+    const deviceId = (
+      req.body.deviceId ||
+      (Array.isArray(headerDeviceId) ? headerDeviceId[0] : headerDeviceId) ||
+      ''
+    ).trim();
+    if (!deviceId) {
+      throw new AppError(400, 'DEVICE_ID_REQUIRED', 'Device identifier (deviceId) is required.');
+    }
     const result = await loginOrRegisterWithGoogle({
       ...req.body,
-      deviceId:
-        req.body.deviceId || (Array.isArray(headerDeviceId) ? headerDeviceId[0] : headerDeviceId),
+      deviceId,
       deviceName:
         req.body.deviceName ||
         (Array.isArray(headerDeviceName) ? headerDeviceName[0] : headerDeviceName),
@@ -70,10 +78,17 @@ router.post('/register', validate(registerSchema), async (req, res, next) => {
   try {
     const headerDeviceId = req.headers['x-device-id'];
     const headerDeviceName = req.headers['x-device-name'];
+    const deviceId = (
+      req.body.deviceId ||
+      (Array.isArray(headerDeviceId) ? headerDeviceId[0] : headerDeviceId) ||
+      ''
+    ).trim();
+    if (!deviceId) {
+      throw new AppError(400, 'DEVICE_ID_REQUIRED', 'Device identifier (deviceId) is required.');
+    }
     const result = await registerAgent({
       ...req.body,
-      deviceId:
-        req.body.deviceId || (Array.isArray(headerDeviceId) ? headerDeviceId[0] : headerDeviceId),
+      deviceId,
       deviceName:
         req.body.deviceName ||
         (Array.isArray(headerDeviceName) ? headerDeviceName[0] : headerDeviceName),

@@ -1,5 +1,6 @@
 package com.easymomo.app.ui.history
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -10,9 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -30,7 +33,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,10 +54,16 @@ import com.easymomo.app.domain.model.TransactionStatus
 import com.easymomo.app.domain.model.TransactionType
 import com.easymomo.app.ui.theme.EasyMoMoCard
 import com.easymomo.app.ui.theme.EmeraldPrimary
+import com.easymomo.app.ui.theme.EmeraldPrimaryContainer
 import com.easymomo.app.ui.theme.EmptyStateView
 import com.easymomo.app.ui.theme.NetworkBadge
+import com.easymomo.app.ui.theme.OnEmeraldPrimaryContainer
+import com.easymomo.app.ui.theme.StatusError
 import com.easymomo.app.ui.theme.StatusPill
+import com.easymomo.app.ui.theme.StatusSuccess
+import com.easymomo.app.ui.theme.StatusWarning
 import com.easymomo.app.ui.theme.TerminalBackground
+import com.easymomo.app.ui.theme.TerminalBorder
 import com.easymomo.app.ui.theme.TextPrimary
 import com.easymomo.app.ui.theme.TextSecondary
 import java.text.DecimalFormat
@@ -79,10 +90,12 @@ fun HistoryScreen(
     val transactions by viewModel.filteredTransactions.collectAsStateWithLifecycle()
     val pendingSync by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
     val syncMsg by viewModel.syncMessage.collectAsStateWithLifecycle()
+    val todayBreakdown by viewModel.todayBreakdown.collectAsStateWithLifecycle()
 
     var selectedTx by remember { mutableStateOf<TransactionEntity?>(null) }
+    var showTodaySummary by remember { mutableStateOf(true) }
     val dateFmt = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.US) }
-    val amountFmt = remember { DecimalFormat("0.00", DecimalFormatSymbols(Locale.US)) }
+    val amountFmt = remember { DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US)) }
 
     Scaffold(
         containerColor = TerminalBackground,
@@ -111,6 +124,104 @@ fun HistoryScreen(
         ) {
             syncMsg?.let { msg ->
                 Text(msg, style = MaterialTheme.typography.labelSmall, color = EmeraldPrimary)
+            }
+
+            // Smart Today's Summary (MTN, Telecel, etc.)
+            EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Today's Summary",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "GHS ${amountFmt.format(todayBreakdown.totalAmount)} • ${todayBreakdown.successfulCount} successful" +
+                                if (todayBreakdown.pendingCount > 0) " • ${todayBreakdown.pendingCount} pending" else "" +
+                                    if (todayBreakdown.failedCount > 0) " • ${todayBreakdown.failedCount} failed" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    TextButton(onClick = { showTodaySummary = !showTodaySummary }) {
+                        Text(
+                            text = if (showTodaySummary) "Hide" else "Show",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+
+                if (showTodaySummary && todayBreakdown.networks.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        todayBreakdown.networks.forEach { netSummary ->
+                            val isFiltered = filter.network == netSummary.network.code
+                            Surface(
+                                modifier = Modifier
+                                    .width(172.dp)
+                                    .clickable {
+                                        viewModel.updateNetworkFilter(
+                                            if (isFiltered) null else netSummary.network.code
+                                        )
+                                    },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isFiltered) EmeraldPrimaryContainer else TerminalBackground,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isFiltered) EmeraldPrimary else TerminalBorder
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        NetworkBadge(network = netSummary.network)
+                                        Text(
+                                            text = "${netSummary.totalCount} tx",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isFiltered) OnEmeraldPrimaryContainer else TextSecondary
+                                        )
+                                    }
+                                    Text(
+                                        text = "GHS ${amountFmt.format(netSummary.totalAmount)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isFiltered) OnEmeraldPrimaryContainer else TextPrimary
+                                    )
+                                    HorizontalDivider(color = TerminalBorder)
+                                    SummaryMetricRow(
+                                        label = "Cash In",
+                                        value = "GHS ${amountFmt.format(netSummary.cashInAmount)} (${netSummary.cashInCount})"
+                                    )
+                                    SummaryMetricRow(
+                                        label = "Cash Out",
+                                        value = "GHS ${amountFmt.format(netSummary.cashOutAmount)} (${netSummary.cashOutCount})"
+                                    )
+                                    SummaryMetricRow(
+                                        label = "Data/Air",
+                                        value = "GHS ${amountFmt.format(netSummary.airtimeDataAmount)} (${netSummary.airtimeDataCount})"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             OutlinedTextField(
@@ -261,6 +372,26 @@ fun HistoryScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun SummaryMetricRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondary
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = TextPrimary
+        )
     }
 }
 

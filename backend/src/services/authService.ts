@@ -12,6 +12,7 @@ import {
 } from './trialService';
 import { verifyAndRegisterDevice } from './deviceLimitService';
 import { getEffectiveGoogleClientId, getEffectiveTrialDays } from './settingsService';
+import { hasDeviceUsedTrial, recordTrialDevice } from './trialDeviceService';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -43,6 +44,7 @@ export interface AuthResponse {
     createdAt: string;
   };
   entitlement: EntitlementSummary;
+  trialNotice?: string | null;
 }
 
 function signToken(userId: string, role: UserRole): string {
@@ -55,6 +57,11 @@ export async function registerAgent(
   input: RegisterInput,
   db: PrismaClient = defaultPrisma,
 ): Promise<AuthResponse> {
+  const deviceId = (input.deviceId ?? '').trim();
+  if (!deviceId) {
+    throw new AppError(400, 'DEVICE_ID_REQUIRED', 'Device identifier (deviceId) is required.');
+  }
+
   const email = input.email.trim().toLowerCase();
   const phone = input.phone.trim();
 
@@ -77,10 +84,13 @@ export async function registerAgent(
 
   const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
   const now = new Date();
-  const trialDays = await getEffectiveTrialDays(db);
-  const trialExpiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+  const alreadyUsedTrial = await hasDeviceUsedTrial(deviceId, db);
+  const trialDays = alreadyUsedTrial ? 0 : await getEffectiveTrialDays(db);
+  const trialExpiresAt = alreadyUsedTrial
+    ? null
+    : new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
 
-  // Create user and activate automatic free trial (15 days by default) atomically only after account creation succeeds
+  // Create user and activate automatic free trial only if this device has not already used one
   const result = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
@@ -97,8 +107,8 @@ export async function registerAgent(
     const entitlement = await tx.subscriptionEntitlement.create({
       data: {
         userId: user.id,
-        status: EntitlementStatus.TRIAL,
-        trialStartedAt: now,
+        status: alreadyUsedTrial ? EntitlementStatus.EXPIRED : EntitlementStatus.TRIAL,
+        trialStartedAt: alreadyUsedTrial ? null : now,
         trialExpiresAt,
       },
     });
@@ -106,7 +116,11 @@ export async function registerAgent(
     return { user, entitlement };
   });
 
-  await verifyAndRegisterDevice(result.user.id, input.deviceId, input.deviceName, db, {
+  if (!alreadyUsedTrial) {
+    await recordTrialDevice(deviceId, result.user.id, db);
+  }
+
+  await verifyAndRegisterDevice(result.user.id, deviceId, input.deviceName, db, {
     bypassThrottle: true,
   });
 
@@ -124,6 +138,9 @@ export async function registerAgent(
       createdAt: result.user.createdAt.toISOString(),
     },
     entitlement: computeEntitlementSummary(result.entitlement, now),
+    ...(alreadyUsedTrial
+      ? { trialNotice: 'Free trial already used on this device. Subscribe to continue.' }
+      : {}),
   };
 }
 
@@ -273,6 +290,11 @@ export async function loginOrRegisterWithGoogle(
   verifier: GoogleTokenVerifier = verifyGoogleIdToken,
   clientIdOverride?: string,
 ): Promise<AuthResponse> {
+  const deviceId = (input.deviceId ?? '').trim();
+  if (!deviceId) {
+    throw new AppError(400, 'DEVICE_ID_REQUIRED', 'Device identifier (deviceId) is required.');
+  }
+
   const expectedClientId = (clientIdOverride ?? (await getEffectiveGoogleClientId(db))).trim();
   if (!expectedClientId) {
     throw new AppError(
@@ -329,8 +351,11 @@ export async function loginOrRegisterWithGoogle(
 
   const randomPasswordHash = await bcrypt.hash(crypto.randomUUID(), BCRYPT_ROUNDS);
   const now = new Date();
-  const trialDays = await getEffectiveTrialDays(db);
-  const trialExpiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+  const alreadyUsedTrial = await hasDeviceUsedTrial(deviceId, db);
+  const trialDays = alreadyUsedTrial ? 0 : await getEffectiveTrialDays(db);
+  const trialExpiresAt = alreadyUsedTrial
+    ? null
+    : new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
 
   const result = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
@@ -348,8 +373,8 @@ export async function loginOrRegisterWithGoogle(
     const entitlement = await tx.subscriptionEntitlement.create({
       data: {
         userId: user.id,
-        status: EntitlementStatus.TRIAL,
-        trialStartedAt: now,
+        status: alreadyUsedTrial ? EntitlementStatus.EXPIRED : EntitlementStatus.TRIAL,
+        trialStartedAt: alreadyUsedTrial ? null : now,
         trialExpiresAt,
       },
     });
@@ -357,7 +382,11 @@ export async function loginOrRegisterWithGoogle(
     return { user, entitlement };
   });
 
-  await verifyAndRegisterDevice(result.user.id, input.deviceId, input.deviceName, db, {
+  if (!alreadyUsedTrial) {
+    await recordTrialDevice(deviceId, result.user.id, db);
+  }
+
+  await verifyAndRegisterDevice(result.user.id, deviceId, input.deviceName, db, {
     bypassThrottle: true,
   });
 
@@ -374,5 +403,8 @@ export async function loginOrRegisterWithGoogle(
       createdAt: result.user.createdAt.toISOString(),
     },
     entitlement: computeEntitlementSummary(result.entitlement, now),
+    ...(alreadyUsedTrial
+      ? { trialNotice: 'Free trial already used on this device. Subscribe to continue.' }
+      : {}),
   };
 }

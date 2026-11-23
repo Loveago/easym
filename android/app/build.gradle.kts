@@ -13,8 +13,8 @@ android {
         applicationId = "com.easy.momo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -29,6 +29,12 @@ android {
             "$configuredApiBaseUrl/"
         }
         buildConfigField("String", "API_BASE_URL", "\"$normalizedApiBaseUrl\"")
+
+        val configuredGoogleWebClientId = (project.findProperty("GOOGLE_WEB_CLIENT_ID") as? String)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "995099374276-jhia8ugcdf31k6nulodh9lvjncd6fsob.apps.googleusercontent.com"
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$configuredGoogleWebClientId\"")
     }
 
     signingConfigs {

@@ -30,7 +30,13 @@ class AuthViewModel(
     private val repo: AuthSubscriptionRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AuthUiState())
+    private val initialGoogleConfig = repo.getCachedGoogleAuthConfig()
+    private val _uiState = MutableStateFlow(
+        AuthUiState(
+            googleSignInEnabled = initialGoogleConfig.enabled && initialGoogleConfig.clientId.isNotBlank(),
+            googleClientId = initialGoogleConfig.clientId.trim()
+        )
+    )
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     val currentUser = repo.currentUser

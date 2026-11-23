@@ -22,6 +22,7 @@ import com.easymomo.app.domain.model.ProcessingMethod
 import com.easymomo.app.domain.model.TransactionStatus
 import com.easymomo.app.domain.model.TransactionType
 import com.easymomo.app.ussd.model.UssdFlowProfile
+import com.easymomo.app.ussd.sms.ParsedMoMoSms
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.flow.Flow
@@ -298,6 +299,78 @@ class TransactionRepository(
                 isExplicitAgentVerification = isExplicitAgentVerification
             )
         }.getOrDefault(existing)
+    }
+
+    suspend fun recordIncomingSmsNotification(parsed: ParsedMoMoSms): TransactionEntity? {
+        if (parsed.providerReference.isNotBlank()) {
+            val existingByRef = transactionDao.findByProviderReference(parsed.providerReference)
+            if (existingByRef != null) {
+                return null
+            }
+        }
+
+        val now = System.currentTimeMillis()
+        val recentCandidates = transactionDao.findRecentUnconfirmedCandidates(
+            network = parsed.network.code,
+            sinceMs = now - 20 * 60_000L
+        )
+        val matchingAmount = recentCandidates.filter { kotlin.math.abs(it.amount - parsed.amount) < 0.01 }
+        val matched = if (parsed.phoneNumber.isNotBlank()) {
+            matchingAmount.firstOrNull { it.recipientNumber == parsed.phoneNumber }
+                ?: matchingAmount.firstOrNull()
+        } else {
+            matchingAmount.firstOrNull()
+        }
+
+        if (matched != null) {
+            return transitionStatusSafely(
+                localId = matched.localId,
+                newStatus = TransactionStatus.SUCCESSFUL,
+                providerReference = parsed.providerReference.ifBlank { null },
+                confirmationSource = "SMS_NOTIFICATION",
+                providerResponse = parsed.rawText,
+                details = "Auto-confirmed via live MoMo SMS notification",
+                isExplicitAgentVerification = true
+            )
+        }
+
+        val displayRecipient = when {
+            parsed.customerName.isNotBlank() && parsed.phoneNumber.isNotBlank() ->
+                "${parsed.customerName} (${parsed.phoneNumber})"
+            parsed.customerName.isNotBlank() -> parsed.customerName
+            parsed.phoneNumber.isNotBlank() -> parsed.phoneNumber
+            else -> "SMS_IMPORT"
+        }
+
+        val localId = UUID.randomUUID().toString()
+        val entity = TransactionEntity(
+            localId = localId,
+            network = parsed.network.code,
+            transactionType = parsed.transactionType.code,
+            processingMethod = "SMS_NOTIFICATION",
+            recipientNumber = displayRecipient,
+            amount = parsed.amount,
+            status = TransactionStatus.SUCCESSFUL.code,
+            providerReference = parsed.providerReference.ifBlank { null },
+            confirmationSource = "SMS_NOTIFICATION",
+            providerResponse = parsed.rawText,
+            createdAt = now,
+            updatedAt = now
+        )
+        transactionDao.insertTransaction(entity)
+        transactionDao.insertEvent(
+            TransactionEventEntity(
+                id = UUID.randomUUID().toString(),
+                transactionLocalId = localId,
+                eventType = "SMS_IMPORTED",
+                previousStatus = null,
+                newStatus = TransactionStatus.SUCCESSFUL.code,
+                details = "Imported automatically from MoMo SMS notification",
+                createdAt = now
+            )
+        )
+        enqueueForSync(entity)
+        return entity
     }
 
     private fun toSyncDto(tx: TransactionEntity): SyncTransactionItemDto {

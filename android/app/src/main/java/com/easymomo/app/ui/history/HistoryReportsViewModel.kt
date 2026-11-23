@@ -11,7 +11,9 @@ import com.easymomo.app.data.repository.ReportAggregator
 import com.easymomo.app.data.repository.ReportExporter
 import com.easymomo.app.data.repository.ReportSummary
 import com.easymomo.app.data.repository.TransactionRepository
+import com.easymomo.app.domain.model.NetworkType
 import com.easymomo.app.domain.model.TransactionStatus
+import com.easymomo.app.domain.model.TransactionType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +39,27 @@ data class HistoryFilterState(
     val network: String? = null,
     val type: String? = null,
     val status: String? = null
+)
+
+data class NetworkDailySummary(
+    val network: NetworkType,
+    val totalAmount: Double = 0.0,
+    val totalCount: Int = 0,
+    val cashInAmount: Double = 0.0,
+    val cashInCount: Int = 0,
+    val cashOutAmount: Double = 0.0,
+    val cashOutCount: Int = 0,
+    val airtimeDataAmount: Double = 0.0,
+    val airtimeDataCount: Int = 0
+)
+
+data class DailyNetworkBreakdown(
+    val totalAmount: Double = 0.0,
+    val totalFees: Double = 0.0,
+    val successfulCount: Int = 0,
+    val pendingCount: Int = 0,
+    val failedCount: Int = 0,
+    val networks: List<NetworkDailySummary> = emptyList()
 )
 
 class HistoryReportsViewModel(
@@ -70,6 +93,86 @@ class HistoryReportsViewModel(
             txRepo.observeTransactionsBetween(start, end).map { ReportAggregator.aggregate(it) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReportSummary())
+
+    val todayBreakdown: StateFlow<DailyNetworkBreakdown> = run {
+        val (todayStart, todayEnd) = periodBounds(ReportPeriod.DAILY)
+        txRepo.observeTransactionsBetween(todayStart, todayEnd)
+            .map { buildTodayBreakdown(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DailyNetworkBreakdown())
+    }
+
+    private fun buildTodayBreakdown(txs: List<TransactionEntity>): DailyNetworkBreakdown {
+        var totalAmount = 0.0
+        var totalFees = 0.0
+        var successCount = 0
+        var pendingCount = 0
+        var failedCount = 0
+
+        val byNet = mutableMapOf<NetworkType, NetworkDailySummary>()
+        listOf(NetworkType.MTN, NetworkType.TELECEL, NetworkType.AT).forEach { net ->
+            byNet[net] = NetworkDailySummary(network = net)
+        }
+
+        txs.forEach { tx ->
+            val status = TransactionStatus.fromCode(tx.status)
+            when (status) {
+                TransactionStatus.SUCCESSFUL -> successCount++
+                TransactionStatus.FAILED, TransactionStatus.CANCELLED -> failedCount++
+                else -> pendingCount++
+            }
+            if (status != TransactionStatus.SUCCESSFUL) return@forEach
+
+            totalAmount += tx.amount
+            val net = NetworkType.fromCode(tx.network)
+            if (net !in byNet) return@forEach
+            val cur = byNet.getValue(net)
+            val txType = runCatching { TransactionType.valueOf(tx.transactionType) }.getOrNull()
+            val updated = when (txType) {
+                TransactionType.CASH_IN -> cur.copy(
+                    totalAmount = cur.totalAmount + tx.amount,
+                    totalCount = cur.totalCount + 1,
+                    cashInAmount = cur.cashInAmount + tx.amount,
+                    cashInCount = cur.cashInCount + 1
+                )
+                TransactionType.CASH_OUT -> cur.copy(
+                    totalAmount = cur.totalAmount + tx.amount,
+                    totalCount = cur.totalCount + 1,
+                    cashOutAmount = cur.cashOutAmount + tx.amount,
+                    cashOutCount = cur.cashOutCount + 1
+                )
+                TransactionType.DATA,
+                TransactionType.AIRTIME,
+                TransactionType.EVD_BUNDLE,
+                TransactionType.EVD_AIRTIME -> cur.copy(
+                    totalAmount = cur.totalAmount + tx.amount,
+                    totalCount = cur.totalCount + 1,
+                    airtimeDataAmount = cur.airtimeDataAmount + tx.amount,
+                    airtimeDataCount = cur.airtimeDataCount + 1
+                )
+                else -> cur.copy(
+                    totalAmount = cur.totalAmount + tx.amount,
+                    totalCount = cur.totalCount + 1
+                )
+            }
+            byNet[net] = updated
+        }
+
+        // Always show MTN and Telecel; include AT when it has activity today
+        val orderedNetworks = listOfNotNull(
+            byNet[NetworkType.MTN],
+            byNet[NetworkType.TELECEL],
+            byNet[NetworkType.AT]?.takeIf { it.totalCount > 0 }
+        )
+
+        return DailyNetworkBreakdown(
+            totalAmount = totalAmount,
+            totalFees = totalFees,
+            successfulCount = successCount,
+            pendingCount = pendingCount,
+            failedCount = failedCount,
+            networks = orderedNetworks
+        )
+    }
 
     fun observeEvents(localId: String): Flow<List<TransactionEventEntity>> =
         txRepo.observeEvents(localId)

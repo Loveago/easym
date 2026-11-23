@@ -22,6 +22,20 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE localId = :localId LIMIT 1")
     suspend fun getByLocalId(localId: String): TransactionEntity?
 
+    @Query("SELECT * FROM transactions WHERE providerReference = :providerRef LIMIT 1")
+    suspend fun findByProviderReference(providerRef: String): TransactionEntity?
+
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE network = :network
+          AND createdAt >= :sinceMs
+          AND status IN ('DRAFT', 'PROCESSING', 'AWAITING_VERIFICATION', 'UNKNOWN')
+        ORDER BY createdAt DESC
+        """
+    )
+    suspend fun findRecentUnconfirmedCandidates(network: String, sinceMs: Long): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions ORDER BY createdAt DESC")
     fun observeAllTransactions(): Flow<List<TransactionEntity>>
 

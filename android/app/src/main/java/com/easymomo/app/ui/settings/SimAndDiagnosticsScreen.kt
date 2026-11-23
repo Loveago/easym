@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SimCard
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -92,6 +93,7 @@ import com.easymomo.app.ui.theme.TextPrimary
 import com.easymomo.app.ui.theme.TextSecondary
 import com.easymomo.app.ussd.ActiveSimInfo
 import com.easymomo.app.ussd.CapabilityStatus
+import com.easymomo.app.ussd.PermissionCapabilityManager
 import com.easymomo.app.ussd.SimResolutionStatus
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -109,6 +111,10 @@ fun SimAndDiagnosticsScreen(
     val syncStatus by terminalViewModel.customerSyncStatus.collectAsState()
     val flows by terminalViewModel.allUssdFlows.collectAsState()
     val simState by terminalViewModel.ussdState.collectAsState()
+    val context = LocalContext.current
+    val permissionHelper = remember(context) { PermissionCapabilityManager(context) }
+    var isSmsNotificationEnabled by remember { mutableStateOf(permissionHelper.isNotificationListenerEnabled()) }
+    var showSmsDisclosureDialog by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Refresh permissions & SIM status automatically when returning from Android Settings
@@ -116,6 +122,7 @@ fun SimAndDiagnosticsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 terminalViewModel.refreshDeviceStatus(force = true)
+                isSmsNotificationEnabled = permissionHelper.isNotificationListenerEnabled()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1003,6 +1010,23 @@ fun SimAndDiagnosticsScreen(
                         Text("Accessibility")
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { showSmsDisclosureDialog = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSmsNotificationEnabled) EmeraldPrimaryContainer else EmeraldPrimary,
+                        contentColor = if (isSmsNotificationEnabled) OnEmeraldPrimaryContainer else Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (isSmsNotificationEnabled) {
+                            "Live MoMo SMS Capture: Active (Manage)"
+                        } else {
+                            "Enable Live MoMo SMS Capture (Notification Access)"
+                        }
+                    )
+                }
                 TextButton(onClick = onOpenAppSettings, modifier = Modifier.align(Alignment.End)) {
                     Text("Open Android App Settings")
                 }
@@ -1137,6 +1161,43 @@ fun SimAndDiagnosticsScreen(
                 }
             }
         }
+    }
+
+    if (showSmsDisclosureDialog) {
+        AlertDialog(
+            onDismissRequest = { showSmsDisclosureDialog = false },
+            title = {
+                Text(
+                    text = "Live MoMo SMS Capture",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "EasyMoMo can listen to incoming Mobile Money SMS notifications (MTN MoMo, Telecel Cash, AT Money) using Android Notification Access — without requesting READ_SMS.\n\n" +
+                        "• Only transactional Mobile Money alerts are parsed locally to auto-confirm pending transactions and log your daily ledger.\n" +
+                        "• Personal messages, OTPs, and non-MoMo notifications are ignored and never stored.\n" +
+                        "• Only new notifications arriving while enabled are captured.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSmsDisclosureDialog = false
+                        context.startActivity(permissionHelper.createNotificationListenerSettingsIntent())
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                ) {
+                    Text("Agree & Open Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSmsDisclosureDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

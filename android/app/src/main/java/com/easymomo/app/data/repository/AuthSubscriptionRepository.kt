@@ -42,6 +42,13 @@ class AuthSubscriptionRepository(
 
     fun isOnboardingCompleted(): Boolean = sessionStore.onboardingCompleted
 
+    private val _trialNotice = MutableStateFlow<String?>(null)
+    val trialNotice: StateFlow<String?> = _trialNotice.asStateFlow()
+
+    fun clearTrialNotice() {
+        _trialNotice.value = null
+    }
+
     fun setOnboardingCompleted() {
         sessionStore.onboardingCompleted = true
     }
@@ -118,11 +125,21 @@ class AuthSubscriptionRepository(
             val sub = body.entitlement?.toDomain() ?: SubscriptionInfo(status = SubscriptionStatus.NONE)
             sessionStore.saveSubscription(sub)
             _subscription.value = sub
+            _trialNotice.value = body.trialNotice?.takeIf { it.isNotBlank() }
+            _trialNotice.value = body.trialNotice?.takeIf { it.isNotBlank() }
             backgroundScope.launch {
                 runCatching { onUserAuthenticated?.invoke(user.id) }
             }
             user
         }
+    }
+
+    fun getCachedGoogleAuthConfig(): GoogleAuthConfigResponse {
+        val clientId = sessionStore.googleClientId.trim()
+        return GoogleAuthConfigResponse(
+            enabled = sessionStore.googleAuthEnabled && clientId.isNotBlank(),
+            clientId = clientId
+        )
     }
 
     suspend fun getGoogleAuthConfig(): Result<GoogleAuthConfigResponse> {
@@ -131,7 +148,9 @@ class AuthSubscriptionRepository(
             if (!response.isSuccessful) {
                 throw IllegalStateException("Could not load Google Sign-In config (${response.code()})")
             }
-            response.body() ?: GoogleAuthConfigResponse()
+            val cfg = response.body() ?: GoogleAuthConfigResponse()
+            sessionStore.saveGoogleAuthConfig(cfg.enabled, cfg.clientId)
+            cfg
         }
     }
 
@@ -169,6 +188,8 @@ class AuthSubscriptionRepository(
             val sub = body.entitlement?.toDomain() ?: SubscriptionInfo(status = SubscriptionStatus.NONE)
             sessionStore.saveSubscription(sub)
             _subscription.value = sub
+            _trialNotice.value = body.trialNotice?.takeIf { it.isNotBlank() }
+            _trialNotice.value = body.trialNotice?.takeIf { it.isNotBlank() }
             backgroundScope.launch {
                 runCatching { onUserAuthenticated?.invoke(user.id) }
             }
@@ -211,6 +232,8 @@ class AuthSubscriptionRepository(
             val sub = body.entitlement?.toDomain() ?: SubscriptionInfo(status = SubscriptionStatus.NONE)
             sessionStore.saveSubscription(sub)
             _subscription.value = sub
+            _trialNotice.value = body.trialNotice?.takeIf { it.isNotBlank() }
+            _trialNotice.value = body.trialNotice?.takeIf { it.isNotBlank() }
             backgroundScope.launch {
                 runCatching { onUserAuthenticated?.invoke(user.id) }
             }

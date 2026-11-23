@@ -33,6 +33,7 @@ data class PermissionReport(
     val readPhoneNumbers: CapabilityStatus,
     val accessibilityService: CapabilityStatus,
     val notifications: CapabilityStatus,
+    val notificationListener: CapabilityStatus = CapabilityStatus.DISABLED_IN_SETTINGS,
     val hasTelephonyHardware: Boolean
 ) {
     val canLaunchUssd: Boolean
@@ -70,6 +71,12 @@ data class PermissionReport(
             isRequiredForAutoUssd = true
         ),
         CapabilityDiagnostic(
+            name = "Live MoMo SMS Capture (Notification Access)",
+            status = notificationListener,
+            reason = "Optional: reads incoming MoMo/Telecel/AT SMS notifications to auto-confirm pending transactions (no READ_SMS).",
+            isRequiredForAutoUssd = false
+        ),
+        CapabilityDiagnostic(
             name = "POST_NOTIFICATIONS",
             status = notifications,
             reason = "Optional: displays non-sensitive transaction progress alerts.",
@@ -103,6 +110,11 @@ class PermissionCapabilityManager(private val context: Context) {
                 checkRuntimePermission(Manifest.permission.POST_NOTIFICATIONS, activity)
             } else {
                 CapabilityStatus.GRANTED
+            },
+            notificationListener = if (isNotificationListenerEnabled()) {
+                CapabilityStatus.GRANTED
+            } else {
+                CapabilityStatus.DISABLED_IN_SETTINGS
             },
             hasTelephonyHardware = hasTelephony
         )
@@ -151,6 +163,24 @@ class PermissionCapabilityManager(private val context: Context) {
 
     fun createAccessibilitySettingsIntent(): Intent {
         return Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    fun isNotificationListenerEnabled(): Boolean {
+        val flat = Settings.Secure.getString(
+            context.contentResolver,
+            "enabled_notification_listeners"
+        ) ?: return false
+        val fullName = "${context.packageName}/com.easymomo.app.ussd.sms.MoMoNotificationListenerService"
+        val shortName = "${context.packageName}/.ussd.sms.MoMoNotificationListenerService"
+        return flat.split(":").any {
+            it.equals(fullName, ignoreCase = true) || it.equals(shortName, ignoreCase = true)
+        }
+    }
+
+    fun createNotificationListenerSettingsIntent(): Intent {
+        return Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -310,6 +313,7 @@ fun AuthScreen(
     var loginPassword by remember { mutableStateOf("") }
     var showLoginPassword by remember { mutableStateOf(false) }
     var showForgotDialog by remember { mutableStateOf(false) }
+    var showEmailSignIn by remember { mutableStateOf(false) }
 
     // Register state
     var fullName by remember { mutableStateOf("") }
@@ -318,6 +322,7 @@ fun AuthScreen(
     var regPassword by remember { mutableStateOf("") }
     var regConfirm by remember { mutableStateOf("") }
     var showRegPassword by remember { mutableStateOf(false) }
+    var showEmailSignUp by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = TerminalBackground) { padding ->
         Column(
@@ -369,46 +374,28 @@ fun AuthScreen(
 
             if (selectedTab == 0) {
                 EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = loginIdentifier,
-                        onValueChange = { loginIdentifier = it },
-                        label = { Text("Email or Phone Number") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = loginPassword,
-                        onValueChange = { loginPassword = it },
-                        label = { Text("Password") },
-                        singleLine = true,
-                        visualTransformation = if (showLoginPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showLoginPassword = !showLoginPassword }) {
-                                Icon(
-                                    imageVector = if (showLoginPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                    contentDescription = "Toggle password"
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { showForgotDialog = true }) {
-                            Text("Forgot password?")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TerminalActionButton(
-                        label = if (uiState.isLoading) "Signing In..." else "Sign In",
-                        enabled = !uiState.isLoading,
-                        onClick = {
-                            authViewModel.login(loginIdentifier, loginPassword, onAuthenticated)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                     if (uiState.googleSignInEnabled) {
+                        Button(
+                            onClick = launchGoogleSignIn,
+                            enabled = !uiState.isLoading && !isGoogleSigningIn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EmeraldPrimary,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Text(
+                                text = if (isGoogleSigningIn || uiState.isLoading) {
+                                    "Signing in with Google..."
+                                } else {
+                                    "Continue with Google"
+                                },
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -416,21 +403,64 @@ fun AuthScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             HorizontalDivider(modifier = Modifier.weight(1f))
-                            Text("OR", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            TextButton(onClick = { showEmailSignIn = !showEmailSignIn }) {
+                                Text(
+                                    text = if (showEmailSignIn) "Hide email sign in" else "or continue using email",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary
+                                )
+                            }
                             HorizontalDivider(modifier = Modifier.weight(1f))
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = launchGoogleSignIn,
-                            enabled = !uiState.isLoading && !isGoogleSigningIn,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = if (isGoogleSigningIn || uiState.isLoading) "Signing in with Google..." else "Continue with Google",
-                                fontWeight = FontWeight.SemiBold
+                    }
+
+                    AnimatedVisibility(visible = showEmailSignIn || !uiState.googleSignInEnabled) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (uiState.googleSignInEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            OutlinedTextField(
+                                value = loginIdentifier,
+                                onValueChange = { loginIdentifier = it },
+                                label = { Text("Email or Phone Number") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = loginPassword,
+                                onValueChange = { loginPassword = it },
+                                label = { Text("Password") },
+                                singleLine = true,
+                                visualTransformation = if (showLoginPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showLoginPassword = !showLoginPassword }) {
+                                        Icon(
+                                            imageVector = if (showLoginPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                            contentDescription = "Toggle password"
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = { showForgotDialog = true }) {
+                                    Text("Forgot password?")
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TerminalActionButton(
+                                label = if (uiState.isLoading) "Signing In..." else "Sign In",
+                                enabled = !uiState.isLoading,
+                                onClick = {
+                                    authViewModel.login(loginIdentifier, loginPassword, onAuthenticated)
+                                },
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
+
                     if (BuildConfig.DEBUG) {
                         Spacer(modifier = Modifier.height(10.dp))
                         OutlinedButton(
@@ -447,74 +477,28 @@ fun AuthScreen(
                 }
             } else {
                 EasyMoMoCard(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = fullName,
-                        onValueChange = { fullName = it },
-                        label = { Text("Full Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("Phone Number (e.g. 0244123456)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Email Address") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = regPassword,
-                        onValueChange = { regPassword = it },
-                        label = { Text("Password (min 8 chars)") },
-                        singleLine = true,
-                        visualTransformation = if (showRegPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showRegPassword = !showRegPassword }) {
-                                Icon(
-                                    imageVector = if (showRegPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                    contentDescription = "Toggle password"
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = regConfirm,
-                        onValueChange = { regConfirm = it },
-                        label = { Text("Confirm Password") },
-                        singleLine = true,
-                        visualTransformation = if (showRegPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    TerminalActionButton(
-                        label = if (uiState.isLoading) "Creating Account..." else "Create Account",
-                        enabled = !uiState.isLoading,
-                        onClick = {
-                            authViewModel.register(
-                                fullName = fullName,
-                                phone = phone,
-                                email = email,
-                                password = regPassword,
-                                confirmPassword = regConfirm,
-                                onSuccess = onAuthenticated
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                     if (uiState.googleSignInEnabled) {
+                        Button(
+                            onClick = launchGoogleSignIn,
+                            enabled = !uiState.isLoading && !isGoogleSigningIn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EmeraldPrimary,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Text(
+                                text = if (isGoogleSigningIn || uiState.isLoading) {
+                                    "Signing up with Google..."
+                                } else {
+                                    "Sign up with Google"
+                                },
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -522,18 +506,88 @@ fun AuthScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             HorizontalDivider(modifier = Modifier.weight(1f))
-                            Text("OR", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            TextButton(onClick = { showEmailSignUp = !showEmailSignUp }) {
+                                Text(
+                                    text = if (showEmailSignUp) "Hide email sign up" else "or continue using email",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary
+                                )
+                            }
                             HorizontalDivider(modifier = Modifier.weight(1f))
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = launchGoogleSignIn,
-                            enabled = !uiState.isLoading && !isGoogleSigningIn,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = if (isGoogleSigningIn || uiState.isLoading) "Signing in with Google..." else "Sign up with Google",
-                                fontWeight = FontWeight.SemiBold
+                    }
+
+                    AnimatedVisibility(visible = showEmailSignUp || !uiState.googleSignInEnabled) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (uiState.googleSignInEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            OutlinedTextField(
+                                value = fullName,
+                                onValueChange = { fullName = it },
+                                label = { Text("Full Name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it },
+                                label = { Text("Phone Number (e.g. 0244123456)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it },
+                                label = { Text("Email Address") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = regPassword,
+                                onValueChange = { regPassword = it },
+                                label = { Text("Password (min 8 chars)") },
+                                singleLine = true,
+                                visualTransformation = if (showRegPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showRegPassword = !showRegPassword }) {
+                                        Icon(
+                                            imageVector = if (showRegPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                            contentDescription = "Toggle password"
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = regConfirm,
+                                onValueChange = { regConfirm = it },
+                                label = { Text("Confirm Password") },
+                                singleLine = true,
+                                visualTransformation = if (showRegPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            TerminalActionButton(
+                                label = if (uiState.isLoading) "Creating Account..." else "Create Account",
+                                enabled = !uiState.isLoading,
+                                onClick = {
+                                    authViewModel.register(
+                                        fullName = fullName,
+                                        phone = phone,
+                                        email = email,
+                                        password = regPassword,
+                                        confirmPassword = regConfirm,
+                                        onSuccess = onAuthenticated
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }

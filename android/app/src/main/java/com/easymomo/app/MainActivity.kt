@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -79,6 +80,9 @@ class MainActivity : ComponentActivity() {
                 )
             )
             authViewModelRef = authVm
+            LaunchedEffect(Unit) {
+                handlePaymentCallbackIntent(intent)
+            }
             val terminalUiState by terminalVm.uiState.collectAsStateWithLifecycle()
 
             EasyMoMoTheme(darkTheme = terminalUiState.agentSettings.darkModeEnabled) {
@@ -94,10 +98,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val data = intent.data
-        if (data != null && data.scheme == "easymomo" && data.host == "payment") {
+        setIntent(intent)
+        handlePaymentCallbackIntent(intent)
+    }
+
+    private fun handlePaymentCallbackIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "easymomo" && data.host == "payment") {
             val ref = data.getQueryParameter("reference") ?: data.getQueryParameter("trxref")
             authViewModelRef?.verifyPendingOrRefresh(ref)
+            intent.data = null
         }
     }
 }

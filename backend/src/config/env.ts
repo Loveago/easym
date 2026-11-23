@@ -11,7 +11,7 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default('7d'),
   PAYSTACK_SECRET_KEY: z.string().default('sk_test_placeholder'),
   PAYSTACK_BASE_URL: z.string().url().default('https://api.paystack.co'),
-  PAYSTACK_CALLBACK_URL: z.string().url().default('https://easymomo.app/payment/callback'),
+  PAYSTACK_CALLBACK_URL: z.string().url().default('https://backend-omega-blue-30.vercel.app/api/subscriptions/callback'),
   ADMIN_EMAIL: z.string().email().default('admin@easymomo.app'),
   ADMIN_PASSWORD: z.string().default('Admin@123456'),
   ADMIN_NAME: z.string().default('EasyMoMo Admin'),

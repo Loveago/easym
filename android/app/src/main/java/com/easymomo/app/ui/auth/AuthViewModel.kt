@@ -14,6 +14,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class PaymentSuccessInfo(
+    val reference: String,
+    val planName: String? = null,
+    val paidUntil: String? = null,
+    val message: String = "Your EasyMoMo subscription is now active."
+)
+
 data class AuthUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
@@ -22,6 +29,7 @@ data class AuthUiState(
     val pendingCheckoutUrl: String? = null,
     val pendingReference: String? = null,
     val checkoutStatusMessage: String? = null,
+    val paymentSuccess: PaymentSuccessInfo? = null,
     val googleSignInEnabled: Boolean = false,
     val googleClientId: String = ""
 )
@@ -193,17 +201,28 @@ class AuthViewModel(
         _uiState.update { it.copy(pendingCheckoutUrl = null) }
     }
 
+    fun dismissPaymentSuccess() {
+        _uiState.update { it.copy(paymentSuccess = null) }
+    }
+
     fun verifyPendingOrRefresh(reference: String? = _uiState.value.pendingReference) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             if (!reference.isNullOrBlank()) {
                 repo.verifyPaystackPayment(reference)
                     .onSuccess {
+                        val sub = repo.subscription.value
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
                                 pendingReference = null,
-                                checkoutStatusMessage = "Payment verified and subscription updated."
+                                checkoutStatusMessage = "Payment verified and subscription updated.",
+                                paymentSuccess = PaymentSuccessInfo(
+                                    reference = reference,
+                                    planName = sub.currentPlanName,
+                                    paidUntil = sub.paidUntil,
+                                    message = "Your EasyMoMo subscription is now active."
+                                )
                             )
                         }
                         loadSubscriptionDetails()

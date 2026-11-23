@@ -70,7 +70,31 @@ export async function hasDeviceUsedTrial(
       where: { deviceId },
       select: { id: true },
     });
-    return Boolean(existing);
+    if (existing) return true;
+
+    const userDeviceDelegate = (
+      db as unknown as {
+        userDevice?: {
+          findFirst: (args: {
+            where: { deviceId: string };
+            select?: { userId: true };
+            orderBy?: { createdAt: 'asc' | 'desc' };
+          }) => Promise<{ userId: string } | null>;
+        };
+      }
+    )?.userDevice;
+    if (userDeviceDelegate && typeof userDeviceDelegate.findFirst === 'function') {
+      const priorDevice = await userDeviceDelegate.findFirst({
+        where: { deviceId },
+        select: { userId: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (priorDevice) {
+        await recordTrialDevice(deviceId, priorDevice.userId, db);
+        return true;
+      }
+    }
+    return false;
   }
   return fallbackTrialDevices.has(deviceId);
 }

@@ -9,4 +9,7 @@
 -keepclassmembers class com.easymomo.app.data.repository.** { *; }
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
+-keep class androidx.credentials.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+-keep class com.google.android.gms.auth.api.signin.** { *; }
 -dontwarn com.google.errorprone.annotations.**

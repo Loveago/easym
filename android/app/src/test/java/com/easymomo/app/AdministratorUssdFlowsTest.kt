@@ -344,21 +344,48 @@ class AdministratorUssdFlowsTest {
         assertEquals(listOf("4", "0244123456"), sentGig)
         assertTrue(gigController.sessionState.value is UssdSessionState.PausedForPinAuthorization)
 
-        // Verify TELECEL_GIG (3 -> 2 -> manual Operational ID)
+        // Verify TELECEL_GIG_1_5GB & TELECEL_GIG_3_5GB (3 -> 2 -> 5/6 -> phone -> manual Operational ID)
+        val telecelGig15 = flows.getValue("TELECEL_GIG_1_5GB")
+        val telecelGig35 = flows.getValue("TELECEL_GIG_3_5GB")
         val sentTelGig = mutableListOf<String>()
         val telGigController = UssdFlowController(responseSender = { sentTelGig.add(it); true })
         assertTrue(
             telGigController.startFlow(
                 "tx-tel-gig",
-                telecelGig,
-                UssdInputHandler.TransactionVariables(network = NetworkType.TELECEL)
+                telecelGig15,
+                UssdInputHandler.TransactionVariables(
+                    customerPhone = "0201234567",
+                    network = NetworkType.TELECEL
+                )
             ).isSuccess
         )
         telGigController.onPromptObserved("3. Airtime & Bundles")
         telGigController.onPromptObserved("2. Gig Bundle")
+        telGigController.onPromptObserved("5. 1.5GB")
+        telGigController.onPromptObserved("Enter phone number:")
         telGigController.onPromptObserved("Enter Operational ID:")
-        assertEquals(listOf("3", "2"), sentTelGig)
+        assertEquals(listOf("3", "2", "5", "0201234567"), sentTelGig)
         assertTrue(telGigController.sessionState.value is UssdSessionState.PausedForOperationalId)
+
+        val sentTelGig35 = mutableListOf<String>()
+        val telGig35Controller = UssdFlowController(responseSender = { sentTelGig35.add(it); true })
+        assertTrue(
+            telGig35Controller.startFlow(
+                "tx-tel-gig-35",
+                telecelGig35,
+                UssdInputHandler.TransactionVariables(
+                    customerPhone = "0201234567",
+                    network = NetworkType.TELECEL
+                )
+            ).isSuccess
+        )
+        telGig35Controller.onPromptObserved("3. Airtime & Bundles")
+        telGig35Controller.onPromptObserved("2. Gig Bundle")
+        telGig35Controller.onPromptObserved("6. 3.5GB")
+        telGig35Controller.onPromptObserved("Enter phone number:")
+        telGig35Controller.onPromptObserved("Enter Operational ID:")
+        assertEquals(listOf("3", "2", "6", "0201234567"), sentTelGig35)
+        assertTrue(telGig35Controller.sessionState.value is UssdSessionState.PausedForOperationalId)
 
         // Verify MTN_STATEMENT prefix (7 -> 4 -> 1 -> PIN)
         val sentMtnStmt = mutableListOf<String>()

@@ -758,6 +758,7 @@ class TerminalViewModel(
     fun prepareAndRunInlineUssd(
         type: TransactionType,
         overrideNetwork: NetworkType? = null,
+        bundle: DataBundleEntity? = null,
         isRepeatContinuation: Boolean = false,
         onCustomerLedRequired: (localId: String) -> Unit
     ) {
@@ -765,6 +766,7 @@ class TerminalViewModel(
         prepareTransaction(
             type = type,
             overrideNetwork = overrideNetwork,
+            bundle = bundle,
             onReady = { localId, isCustomerLed ->
                 if (isCustomerLed) {
                     onCustomerLedRequired(localId)
@@ -831,7 +833,7 @@ class TerminalViewModel(
                 type == TransactionType.STATEMENT ||
                 type == TransactionType.COMMISSION ||
                 type == TransactionType.MERCHANT_PAY -> false
-            type == TransactionType.GIG -> network == NetworkType.MTN || state.phoneText.isNotBlank()
+            type == TransactionType.GIG -> network != NetworkType.MTN
             else -> true
         }
         if (requiresPhone) {
@@ -960,7 +962,8 @@ class TerminalViewModel(
                 refreshDeviceStatus()
                 return@launch
             }
-            val flowId = "${tx.network}_${tx.transactionType}"
+            val flowId = tx.bundleId?.takeIf { it.startsWith("TELECEL_GIG_") }
+                ?: "${tx.network}_${tx.transactionType}"
             val (transitioned, profile) = withContext(Dispatchers.IO) {
                 val updatedTx = txRepo.transitionStatus(
                     localId = txLocalId,

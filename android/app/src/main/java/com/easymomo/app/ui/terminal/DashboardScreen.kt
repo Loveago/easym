@@ -93,6 +93,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.easymomo.app.data.local.DataBundleEntity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -182,6 +183,8 @@ fun DashboardScreen(
     val customUssdState by customUssdViewModel.uiState.collectAsStateWithLifecycle()
     val trialNotice by terminalViewModel.trialNotice.collectAsStateWithLifecycle()
     var pendingNetworkSelectionType by remember { mutableStateOf<TransactionType?>(null) }
+    var showTelecelGigDialog by remember { mutableStateOf(false) }
+    var pendingHighAmountWarning by remember { mutableStateOf<Triple<TransactionType, NetworkType, Double>?>(null) }
     var pendingPermissionAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingAccessibilityAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var showCustomUssdPopup by remember { mutableStateOf(false) }
@@ -252,6 +255,25 @@ fun DashboardScreen(
                 pendingAccessibilityAction = action
             } else {
                 action()
+            }
+        }
+    }
+
+    val executeWithAmountWarning: (TransactionType, NetworkType) -> Unit = { txType, network ->
+        val enteredAmount = terminalViewModel.uiState.value.amountText.toDoubleOrNull()
+        val needsAirtimeWarning = (txType == TransactionType.AIRTIME || txType == TransactionType.EVD_AIRTIME) &&
+            enteredAmount != null && enteredAmount >= 100.0
+        val needsCashInWarning = txType == TransactionType.CASH_IN &&
+            enteredAmount != null && enteredAmount >= 1000.0
+        if (needsAirtimeWarning || needsCashInWarning) {
+            pendingHighAmountWarning = Triple(txType, network, enteredAmount!!)
+        } else {
+            runWithCallPermission {
+                terminalViewModel.prepareAndRunInlineUssd(
+                    type = txType,
+                    overrideNetwork = network,
+                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                )
             }
         }
     }
@@ -374,12 +396,10 @@ fun DashboardScreen(
                             else -> NetworkType.UNKNOWN
                         }
                         if (resolvedNetwork != NetworkType.UNKNOWN) {
-                            runWithCallPermission {
-                                terminalViewModel.prepareAndRunInlineUssd(
-                                    type = txType,
-                                    overrideNetwork = resolvedNetwork,
-                                    onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
-                                )
+                            if (txType == TransactionType.GIG && resolvedNetwork == NetworkType.TELECEL) {
+                                showTelecelGigDialog = true
+                            } else {
+                                executeWithAmountWarning(txType, resolvedNetwork)
                             }
                         } else if (
                             (txType == TransactionType.CASH_IN ||
@@ -526,10 +546,84 @@ fun DashboardScreen(
                     terminalViewModel.onPortedChange(true)
                     terminalViewModel.onManualNetworkSelect(network)
                 }
+                if (selectedType == TransactionType.GIG && network == NetworkType.TELECEL) {
+                    showTelecelGigDialog = true
+                } else {
+                    executeWithAmountWarning(selectedType, network)
+                }
+            }
+        )
+    }
+
+    pendingHighAmountWarning?.let { (warnType, warnNetwork, warnAmount) ->
+        val isAirtime = warnType == TransactionType.AIRTIME || warnType == TransactionType.EVD_AIRTIME
+        val warningText = if (isAirtime) {
+            "Warning: You are doing airtime of GHS 100 or above (GHS ${String.format(java.util.Locale.US, "%.2f", warnAmount)}). Do you wish to proceed?"
+        } else {
+            "Warning: You are doing cash-in of GHS 1,000 or above (GHS ${String.format(java.util.Locale.US, "%.2f", warnAmount)}). Do you wish to proceed?"
+        }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingHighAmountWarning = null },
+            title = {
+                Text(
+                    text = if (isAirtime) "High Airtime Amount Warning" else "High Cash-In Amount Warning",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = StatusWarning
+                )
+            },
+            text = {
+                Text(
+                    text = warningText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingHighAmountWarning = null
+                        runWithCallPermission {
+                            terminalViewModel.prepareAndRunInlineUssd(
+                                type = warnType,
+                                overrideNetwork = warnNetwork,
+                                onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusWarning)
+                ) {
+                    Text("Proceed Anyway", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingHighAmountWarning = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showTelecelGigDialog) {
+        TelecelGigSelectionDialog(
+            onDismiss = { showTelecelGigDialog = false },
+            onSelectPackage = { flowId, displayName, optionCode ->
+                showTelecelGigDialog = false
                 runWithCallPermission {
                     terminalViewModel.prepareAndRunInlineUssd(
-                        type = selectedType,
-                        overrideNetwork = network,
+                        type = TransactionType.GIG,
+                        overrideNetwork = NetworkType.TELECEL,
+                        bundle = DataBundleEntity(
+                            bundleId = flowId,
+                            network = NetworkType.TELECEL.code,
+                            displayName = displayName,
+                            allowance = displayName,
+                            price = 0.0,
+                            validity = "GIG",
+                            providerMenuOption = optionCode,
+                            active = true,
+                            lastVerifiedAt = null
+                        ),
                         onCustomerLedRequired = { localId -> onNavigateToReview(localId, true) }
                     )
                 }
@@ -1686,10 +1780,91 @@ private fun NetworkSelectionDialog(
                             )
                         }
                         Text(
-                            text = "Telecel Cash • *110#",
+                            text = if (selectedType == TransactionType.EVD_AIRTIME) {
+                                "Telecel EVD • *111#"
+                            } else {
+                                "Telecel Cash • *110#"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF8E0000)
                         )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun TelecelGigSelectionDialog(
+    onDismiss: () -> Unit,
+    onSelectPackage: (flowId: String, displayName: String, optionCode: String) -> Unit
+) {
+    val packages = listOf(
+        Triple("TELECEL_GIG_1_5GB", "1.5 GB", "5"),
+        Triple("TELECEL_GIG_3_5GB", "3.5 GB", "6")
+    )
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Select Telecel GIG Package",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Choose the Telecel GIG bundle to send:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                packages.forEach { (flowId, label, optionCode) ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectPackage(flowId, label, optionCode) },
+                        shape = RoundedShape10,
+                        color = Color(0xFFFFEBEE),
+                        border = TelecelBorderStroke
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(RoundedShape6)
+                                        .background(Color(0xFFE60000))
+                                )
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB71C1C)
+                                )
+                            }
+                            Text(
+                                text = "*110# → 3 → 2 → $optionCode",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF8E0000)
+                            )
+                        }
                     }
                 }
             }
